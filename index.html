@@ -97,6 +97,12 @@ td.num,th.num{text-align:right;font-family:var(--font-mono);}
 </head><body>
 <div id="root"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  var supabaseClient = supabase.createClient(
+    'https://crokwtmokshdankujdhx.supabase.co',
+    'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB'
+  );
+</script>
 <script id="app-logic">
 (function(){
 'use strict';
@@ -1450,7 +1456,7 @@ function swapPriority(id, dir){
 /* ============ boot ============ */
 async function boot(){
   root = document.getElementById('root');
-  supabaseClient = supabase.createClient('ВАШ_URL', 'ВАШ_ANON_KEY');
+  supabaseClient = supabase.createClient('https://crokwtmokshdankujdhx.supabase.co', 'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB');
   await loadStateFromDB();
   ui = state.ui;
   render();
