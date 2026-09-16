@@ -224,7 +224,6 @@ var DEFAULT_STATE = {
 function clone(o){ return JSON.parse(JSON.stringify(o)); }
 function uid(p){ return p+'-'+Math.random().toString(36).slice(2,9); }
 
-var supabaseClient = null;
 var state = null;
 var publishTimer = null;
 var saveStatus = 'idle';
