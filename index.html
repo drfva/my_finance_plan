@@ -96,6 +96,15 @@ td.num,th.num{text-align:right;font-family:var(--font-mono);}
 </style>
 </head><body>
 <div id="root"></div>
+<div id="login-screen" style="display:none;max-width:320px;margin:60px auto;padding:20px;font-family:sans-serif;">
+  <h2>Вход</h2>
+  <div style="display:flex;flex-direction:column;gap:8px;">
+    <input id="login-email" type="email" placeholder="Email" style="padding:8px;">
+    <input id="login-password" type="password" placeholder="Пароль" style="padding:8px;">
+    <button id="login-btn" style="padding:8px;">Войти</button>
+    <div id="login-error" style="color:#b0453f;font-size:12px;"></div>
+  </div>
+</div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
   var supabaseClient = supabase.createClient(
@@ -106,6 +115,36 @@ td.num,th.num{text-align:right;font-family:var(--font-mono);}
 <script id="app-logic">
 (function(){
 'use strict';
+function showLogin(){
+  document.getElementById('login-screen').style.display = 'block';
+  document.getElementById('root').style.display = 'none';
+}
+function hideLogin(){
+  document.getElementById('login-screen').style.display = 'none';
+  document.getElementById('root').style.display = '';
+}
+
+function ensureSignedIn(){
+  return supabaseClient.auth.getSession().then(function(res){
+    if (res.data.session) { hideLogin(); return true; }
+    showLogin();
+    return new Promise(function(resolve){
+      document.getElementById('login-btn').addEventListener('click', function(){
+        var email = document.getElementById('login-email').value;
+        var password = document.getElementById('login-password').value;
+        supabaseClient.auth.signInWithPassword({ email: email, password: password })
+          .then(function(res2){
+            if (res2.error) {
+              document.getElementById('login-error').textContent = 'Ошибка: ' + res2.error.message;
+              return;
+            }
+            hideLogin();
+            resolve(true);
+          });
+      });
+    });
+  });
+}
 
 /* ============ constants ============ */
 var HOLIDAYS_2027 = ['2027-01-01','2027-01-02','2027-01-03','2027-01-04','2027-01-05','2027-01-06','2027-01-07','2027-01-08','2027-02-23','2027-03-08','2027-05-01','2027-05-09','2027-06-12','2027-11-04'];
@@ -1455,13 +1494,14 @@ function swapPriority(id, dir){
 
 /* ============ boot ============ */
 async function boot(){
+  upabaseClient = supabase.createClient('https://crokwtmokshdankujdhx.supabase.co', 'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB');
   root = document.getElementById('root');
-  supabaseClient = supabase.createClient('https://crokwtmokshdankujdhx.supabase.co', 'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB');
+  await ensureSignedIn();
   await loadStateFromDB();
-  ui = state.ui;
   render();
 }
+})
 if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', boot); } else { boot(); }
-})();
 </script>
+
 </body></html>
