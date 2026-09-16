@@ -1494,10 +1494,11 @@ function swapPriority(id, dir){
 
 /* ============ boot ============ */
 async function boot(){
-  upabaseClient = supabase.createClient('https://crokwtmokshdankujdhx.supabase.co', 'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB');
+  supabaseClient = supabase.createClient('https://crokwtmokshdankujdhx.supabase.co', 'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB');
   root = document.getElementById('root');
   await ensureSignedIn();
   await loadStateFromDB();
+  ui = state.ui;
   render();
 }
 })
