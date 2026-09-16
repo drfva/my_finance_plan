@@ -107,7 +107,7 @@ td.num,th.num{text-align:right;font-family:var(--font-mono);}
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  var supabaseClient = supabase.createClient(
+var supabaseClient = supabase.createClient(
     'https://crokwtmokshdankujdhx.supabase.co',
     'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB'
   );
@@ -1494,7 +1494,6 @@ function swapPriority(id, dir){
 
 /* ============ boot ============ */
 async function boot(){
-  supabaseClient = supabase.createClient('https://crokwtmokshdankujdhx.supabase.co', 'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB');
   root = document.getElementById('root');
   await ensureSignedIn();
   await loadStateFromDB();
