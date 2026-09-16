@@ -1,0 +1,1472 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Финансы 2027</title>
+<style id="app-style">
+:root{
+  --bg:#F6F3EC; --surface:#FFFFFF; --surface-2:#F0ECE1; --ink:#20241F; --muted:#6E7568;
+  --line:#E1DACB; --accent:#1F7A5C; --accent-ink:#0F4A35; --accent-soft:#E1F0E7;
+  --warn:#A66B1E; --warn-soft:#F6E9D3; --danger:#B0453F; --danger-soft:#F7E1DE;
+  --font-display:'Fraunces',Georgia,serif; --font-body:'Inter',system-ui,-apple-system,sans-serif;
+  --font-mono:'JetBrains Mono',ui-monospace,'SFMono-Regular',Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#141813; --surface:#1C231C; --surface-2:#232B22; --ink:#E7EDE3; --muted:#96A390;
+    --line:#2C352A; --accent:#4FBE8F; --accent-ink:#BCEBD4; --accent-soft:#1E3A2C;
+    --warn:#E0AA5A; --warn-soft:#3A2E17; --danger:#E28079; --danger-soft:#3A211F;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#141813; --surface:#1C231C; --surface-2:#232B22; --ink:#E7EDE3; --muted:#96A390;
+  --line:#2C352A; --accent:#4FBE8F; --accent-ink:#BCEBD4; --accent-soft:#1E3A2C;
+  --warn:#E0AA5A; --warn-soft:#3A2E17; --danger:#E28079; --danger-soft:#3A211F;
+  color-scheme:dark;
+}
+*{box-sizing:border-box;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:14px;line-height:1.5;padding-bottom:env(safe-area-inset-bottom,0px);}
+h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0 0 4px;text-wrap:balance;}
+.num{font-family:var(--font-mono);font-variant-numeric:tabular-nums;}
+button{font-family:inherit;font-size:13px;cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:7px 12px;transition:background .15s,border-color .15s;}
+button:hover{border-color:var(--accent);}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+button.primary:hover{opacity:.9;}
+button.ghost{background:transparent;border-color:transparent;color:var(--muted);padding:4px 6px;}
+button.ghost:hover{color:var(--danger);}
+button.small{padding:4px 8px;font-size:12px;}
+input,select{font-family:inherit;font-size:13px;background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:6px 8px;width:100%;}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:1px;}
+label{font-size:11px;color:var(--muted);display:block;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;}
+.field{display:flex;flex-direction:column;gap:2px;}
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:10;background:var(--bg);border-bottom:1px solid var(--line);padding:14px 18px 0;}
+.topbar-inner{display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;max-width:1080px;margin:0 auto;}
+.brand{display:flex;align-items:baseline;gap:8px;}
+.brand .badge-year{font-family:var(--font-mono);color:var(--accent);font-size:13px;background:var(--accent-soft);padding:2px 8px;border-radius:20px;}
+.savebadge{font-size:11px;color:var(--muted);font-family:var(--font-mono);}
+nav.tabs{display:flex;gap:4px;overflow-x:auto;max-width:1080px;margin:12px auto 0;padding-bottom:0;}
+nav.tabs button{white-space:nowrap;border:none;border-bottom:2px solid transparent;border-radius:0;background:transparent;padding:9px 12px;color:var(--muted);font-weight:500;}
+nav.tabs button.active{color:var(--accent-ink);border-bottom-color:var(--accent);font-weight:700;}
+main{max-width:1080px;margin:0 auto;padding:18px;display:flex;flex-direction:column;gap:16px;}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px;}
+.card-title{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px;}
+.grid{display:grid;gap:12px;}
+.grid.cols-2{grid-template-columns:repeat(2,1fr);}
+.grid.cols-3{grid-template-columns:repeat(3,1fr);}
+.grid.cols-4{grid-template-columns:repeat(4,1fr);}
+@media (max-width:720px){.grid.cols-2,.grid.cols-3,.grid.cols-4{grid-template-columns:1fr;}}
+.stat{display:flex;flex-direction:column;gap:2px;}
+.stat .v{font-family:var(--font-mono);font-size:22px;font-weight:600;}
+.stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.pill{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600;background:var(--surface-2);color:var(--muted);}
+.pill.ok{background:var(--accent-soft);color:var(--accent-ink);}
+.pill.warn{background:var(--warn-soft);color:var(--warn);}
+.pill.danger{background:var(--danger-soft);color:var(--danger);}
+.progress{height:8px;border-radius:6px;background:var(--surface-2);overflow:hidden;position:relative;}
+.progress > i{display:block;height:100%;background:var(--accent);border-radius:6px 0 0 6px;}
+.progress.over > i{background:var(--warn);}
+.row{display:flex;align-items:center;gap:8px;}
+.row.between{justify-content:space-between;}
+.row.wrap{flex-wrap:wrap;}
+.muted{color:var(--muted);}
+hr.sep{border:none;border-top:1px solid var(--line);margin:10px 0;}
+.period-card{border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+.period-head{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;background:var(--surface);flex-wrap:wrap;}
+.period-head:hover{background:var(--surface-2);}
+.period-date{font-family:var(--font-mono);font-weight:700;min-width:64px;}
+.period-body{padding:0 14px 14px;border-top:1px solid var(--line);background:var(--surface);display:none;}
+.period-card.open .period-body{display:block;}
+.chev{transition:transform .15s;color:var(--muted);}
+.period-card.open .chev{transform:rotate(90deg);}
+table{width:100%;border-collapse:collapse;}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--line);font-size:13px;}
+th{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;font-weight:600;}
+td.num,th.num{text-align:right;font-family:var(--font-mono);}
+.cat-card{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--surface);}
+.item-row{display:grid;grid-template-columns:1fr 110px auto;gap:6px;align-items:center;margin-bottom:6px;}
+.goal-card{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--surface);}
+.goal-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;}
+.priority-controls{display:flex;flex-direction:column;gap:2px;}
+.priority-controls button{padding:2px 6px;line-height:1;}
+.info-box{background:var(--surface-2);border-radius:10px;padding:12px 14px;font-size:12.5px;color:var(--muted);}
+.info-box b{color:var(--ink);}
+.tag-input-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;}
+.wd-table td,.wd-table th{padding:4px 6px;}
+.small-note{font-size:11px;color:var(--muted);margin-top:4px;}
+::selection{background:var(--accent-soft);}
+</style>
+</head><body>
+<script id="app-state" type="application/json">{"ui":{"tab":"settings","openPeriods":{"p1":true,"p2":false,"p6":true,"p3":false,"p4":true,"p9":true,"p25":false,"p5":true,"p7":true,"p8":true,"p-o6rewaj":true,"p15":true,"p20":true,"p21":true,"p19":true,"p10":true,"p11":true,"p12":true,"p13":true,"p14":true,"p16":true,"p17":true,"p18":true},"catPercent":false,"selectedYear":2027,"openWdYears":{"2026":false,"2027":false}},"oklad":{"history":[{"effectiveFrom":"2027-01-01","amount":230000}]},"ndfl":{"brackets":[{"upTo":2400000,"rate":0.13},{"upTo":5000000,"rate":0.15},{"upTo":20000000,"rate":0.18},{"upTo":50000000,"rate":0.2},{"upTo":null,"rate":0.22}]},"income2026":[152000,112000,152000,176000,199000,150000,200100,200100,200100,200100,200000,195500],"sickLeaves":[],"vacations":[{"id":"vac1","start":"2027-04-26","end":"2027-05-02","note":"Отпуск (апрель–май)","manualPay":46969},{"id":"vac2","start":"2027-08-02","end":"2027-08-15","note":"Отпуск (август)","manualPay":91790}],"categories":[{"id":"cat-life","name":"Жизнь","amount":14500,"items":[{"name":"Продукты","amount":10000},{"name":"Табак","amount":1500},{"name":"Транспорт","amount":1500}]},{"id":"cat-fixed","name":"Платежи","amount":4750,"items":[{"name":"Связь","amount":500},{"name":"Интернет","amount":500},{"name":"ЖКХ","amount":3500},{"name":"Подписки","amount":500}]},{"id":"cat-beauty","name":"Красота","amount":10000,"items":[{"name":"Лазер","amount":2500},{"name":"Уход","amount":1400},{"name":"Косметика","amount":600},{"name":"Стрижка","amount":500},{"name":"Маникюр","amount":2000},{"name":"Педикюр","amount":1000,"season":{"from":"06-01","to":"09-30"}}]},{"id":"cat-household","name":"Дом","amount":2000,"items":[]},{"id":"cat-health","name":"Здоровье","amount":1500,"items":[{"name":"Общее","amount":1000},{"name":"Психотерапевт","amount":4000,"season":{"from":"10-01","to":"03-31"}}]},{"id":"cat-pet","name":"Животные","amount":4750,"items":[{"name":"Корм","amount":1000},{"name":"Приют","amount":1000},{"name":"Наполнитель","amount":1000},{"name":"Ветеринар","amount":1000}]},{"id":"cat-joy","name":"Joy","amount":7500,"items":[{"name":"Кафе","amount":5000},{"name":"Одежда","amount":2000},{"name":"Горнолыжка","amount":4000,"season":{"from":"10-01","to":"03-15"}},{"name":"Вейксерф","amount":7500,"season":{"from":"06-01","to":"08-31"}}]},{"id":"cat-sport","name":"Sport","amount":10500,"items":[{"name":"Тренер","amount":7500},{"name":"Бассейн","amount":1000}]}],"goals":[{"id":"goal-travel","name":"Путешествия","priority":2,"target":315000,"deadline":"","startingBalance":0,"completed":false,"subgoals":[{"id":"sub-travel-1","name":"Отпуск в апреле","target":150000,"deadline":"2027-04-05"},{"id":"sub-travel-2","name":"Отпуск в августе","target":315000,"deadline":"2027-07-31"},{"id":"sub-0354tmo","name":"Отпуск в октябре","target":200000,"deadline":"2027-10-05"}],"withdrawals":[{"date":"2027-04-21","amount":150000,"note":"Поездка (апрель)"},{"date":"2027-07-21","amount":315000,"note":"Поездка (июль)"}]},{"id":"goal-implant","name":"Имплант","priority":5,"target":60000,"deadline":"","startingBalance":0,"completed":false,"subgoals":[],"withdrawals":[]},{"id":"goal-cushion","name":"Подушка безопасности","priority":6,"target":300000,"deadline":"","startingBalance":0,"completed":false,"subgoals":[],"withdrawals":[]},{"id":"goal-currency","name":"Валюта","priority":7,"target":50000,"deadline":"","startingBalance":0,"completed":false,"subgoals":[],"withdrawals":[]},{"id":"goal-iphone","name":"Айфон","priority":1,"target":150000,"deadline":"2027-02-15","startingBalance":30000,"completed":false,"subgoals":[],"withdrawals":[]},{"id":"goal-cl4g1d5","name":"Подарки","priority":3,"target":96000,"deadline":"2027-12-31","startingBalance":0,"completed":false,"subgoals":[{"id":"sub-evksp2h","name":"Мама ДР","target":3000,"deadline":"2027-02-07"},{"id":"sub-szzwz7i","name":"Даша ДР","target":10000,"deadline":"2027-02-20"},{"id":"sub-6cki73f","name":"Бабушка ДР","target":3000,"deadline":"2027-05-11"},{"id":"sub-rqqqlku","name":"Вика ДР","target":5000,"deadline":""},{"id":"sub-elohdv7","name":"Ира ДР","target":5000,"deadline":"2027-08-01"},{"id":"sub-joj4ayt","name":"Папа ДР","target":3000,"deadline":"2027-12-20"},{"id":"sub-q40b4cg","name":"Марина ДР","target":10000,"deadline":"2027-12-23"},{"id":"sub-iapugyp","name":"Зарик ДР","target":10000,"deadline":"2027-12-26"},{"id":"sub-r2tf87y","name":"Новый год","target":30000,"deadline":"2027-12-21"},{"id":"sub-ntafeq5","name":"Свадьбы","target":5000,"deadline":""}],"withdrawals":[]},{"id":"goal-fn06pc8","name":"Оплата зала","priority":4,"target":18000,"deadline":"2027-08-31","startingBalance":0,"completed":false,"subgoals":[],"withdrawals":[]}],"periods":[{"id":"p1","date":"2026-12-31","label":"31.12","type":"zp","half":"second","monthRef":{"y":2026,"m":12},"calc":"manual","incomeActual":97750,"assignedVacations":[],"note":"Фактически приходит 30.12.2026","locked":false,"extraIncomes":[]},{"id":"p2","date":"2027-01-20","label":"20.01","type":"avans","half":"first","monthRef":{"y":2027,"m":1},"calc":"auto","incomeActual":66700,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p3","date":"2027-02-05","label":"05.02","type":"zp","half":"second","monthRef":{"y":2027,"m":1},"calc":"auto","incomeActual":133400,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p4","date":"2027-02-20","label":"20.02","type":"avans","half":"first","monthRef":{"y":2027,"m":2},"calc":"auto","incomeActual":115847,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p5","date":"2027-03-05","label":"05.03","type":"zp","half":"second","monthRef":{"y":2027,"m":2},"calc":"auto","incomeActual":84253,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p6","date":"2027-03-19","label":"19.03","type":"avans","half":"first","monthRef":{"y":2027,"m":3},"calc":"auto","incomeActual":90954,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p7","date":"2027-04-05","label":"05.04","type":"zp","half":"second","monthRef":{"y":2027,"m":3},"calc":"auto","incomeActual":109145,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p8","date":"2027-04-20","label":"20.04","type":"avans","half":"first","monthRef":{"y":2027,"m":4},"calc":"auto","incomeActual":100050,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p9","date":"2027-05-05","label":"05.05","type":"zp","half":"second","monthRef":{"y":2027,"m":4},"calc":"auto","incomeActual":54500,"assignedVacations":[{"id":"vac1","share":1}],"locked":false,"extraIncomes":[]},{"id":"p10","date":"2027-05-20","label":"20.05","type":"avans","half":"first","monthRef":{"y":2027,"m":5},"calc":"auto","incomeActual":84250,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p11","date":"2027-06-05","label":"05.06","type":"zp","half":"second","monthRef":{"y":2027,"m":5},"calc":"auto","incomeActual":115800,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p12","date":"2027-06-20","label":"20.06","type":"avans","half":"first","monthRef":{"y":2027,"m":6},"calc":"auto","incomeActual":95200,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p13","date":"2027-07-05","label":"05.07","type":"zp","half":"second","monthRef":{"y":2027,"m":6},"calc":"auto","incomeActual":104800,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p14","date":"2027-07-20","label":"20.07","type":"avans","half":"first","monthRef":{"y":2027,"m":7},"calc":"auto","incomeActual":100050,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p15","date":"2027-08-05","label":"05.08","type":"zp","half":"second","monthRef":{"y":2027,"m":7},"calc":"auto","incomeActual":54500,"assignedVacations":[{"id":"vac2","share":0.5}],"locked":false,"extraIncomes":[]},{"id":"p16","date":"2027-08-20","label":"20.08","type":"avans","half":"first","monthRef":{"y":2027,"m":8},"calc":"auto","incomeActual":45500,"assignedVacations":[{"id":"vac2","share":0.5}],"locked":false,"extraIncomes":[]},{"id":"p17","date":"2027-09-05","label":"05.09","type":"zp","half":"second","monthRef":{"y":2027,"m":8},"calc":"auto","incomeActual":109000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p18","date":"2027-09-20","label":"20.09","type":"avans","half":"first","monthRef":{"y":2027,"m":9},"calc":"auto","incomeActual":100050,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p19","date":"2027-10-05","label":"05.10","type":"zp","half":"second","monthRef":{"y":2027,"m":9},"calc":"auto","incomeActual":100050,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p20","date":"2027-10-20","label":"20.10","type":"avans","half":"first","monthRef":{"y":2027,"m":10},"calc":"auto","incomeActual":104800,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p21","date":"2027-11-05","label":"05.11","type":"zp","half":"second","monthRef":{"y":2027,"m":10},"calc":"auto","incomeActual":95200,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p22","date":"2027-11-20","label":"20.11","type":"avans","half":"first","monthRef":{"y":2027,"m":11},"calc":"auto","incomeActual":90000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p23","date":"2027-12-05","label":"05.12","type":"zp","half":"second","monthRef":{"y":2027,"m":11},"calc":"auto","incomeActual":110000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p24","date":"2027-12-20","label":"20.12","type":"avans","half":"first","monthRef":{"y":2027,"m":12},"calc":"auto","incomeActual":97750,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p25","date":"2027-12-31","label":"31.12","type":"zp","half":"second","monthRef":{"y":2027,"m":12},"calc":"auto","incomeActual":97750,"assignedVacations":[],"note":"Выплата раньше срока из-за новогодних праздников","locked":false,"extraIncomes":[]},{"id":"p-ntuqtji","date":"2028-01-20","label":"20.01","type":"avans","half":"first","monthRef":{"y":2028,"m":1},"calc":"auto","incomeActual":109524,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-zcgt0ma","date":"2028-02-05","label":"05.02","type":"zp","half":"second","monthRef":{"y":2028,"m":1},"calc":"auto","incomeActual":120476,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-xl505cb","date":"2028-02-20","label":"20.02","type":"avans","half":"first","monthRef":{"y":2028,"m":2},"calc":"auto","incomeActual":120476,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-16c9qqk","date":"2028-03-05","label":"05.03","type":"zp","half":"second","monthRef":{"y":2028,"m":2},"calc":"auto","incomeActual":109524,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-ghwlwge","date":"2028-03-20","label":"20.03","type":"avans","half":"first","monthRef":{"y":2028,"m":3},"calc":"auto","incomeActual":110000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-6n94o0p","date":"2028-04-05","label":"05.04","type":"zp","half":"second","monthRef":{"y":2028,"m":3},"calc":"auto","incomeActual":120000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-h9v5hna","date":"2028-04-20","label":"20.04","type":"avans","half":"first","monthRef":{"y":2028,"m":4},"calc":"auto","incomeActual":115000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-krjn22l","date":"2028-05-05","label":"05.05","type":"zp","half":"second","monthRef":{"y":2028,"m":4},"calc":"auto","incomeActual":115000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-g8upb7i","date":"2028-05-20","label":"20.05","type":"avans","half":"first","monthRef":{"y":2028,"m":5},"calc":"auto","incomeActual":110000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-49e7igi","date":"2028-06-05","label":"05.06","type":"zp","half":"second","monthRef":{"y":2028,"m":5},"calc":"auto","incomeActual":120000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-8wjw7qk","date":"2028-06-20","label":"20.06","type":"avans","half":"first","monthRef":{"y":2028,"m":6},"calc":"auto","incomeActual":115000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-ohsthjj","date":"2028-07-05","label":"05.07","type":"zp","half":"second","monthRef":{"y":2028,"m":6},"calc":"auto","incomeActual":115000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-sc9to7b","date":"2028-07-20","label":"20.07","type":"avans","half":"first","monthRef":{"y":2028,"m":7},"calc":"auto","incomeActual":109524,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-wjm1efc","date":"2028-08-05","label":"05.08","type":"zp","half":"second","monthRef":{"y":2028,"m":7},"calc":"auto","incomeActual":120476,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-tcrogdv","date":"2028-08-20","label":"20.08","type":"avans","half":"first","monthRef":{"y":2028,"m":8},"calc":"auto","incomeActual":110000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-auxr05s","date":"2028-09-05","label":"05.09","type":"zp","half":"second","monthRef":{"y":2028,"m":8},"calc":"auto","incomeActual":120000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-8d4itwz","date":"2028-09-20","label":"20.09","type":"avans","half":"first","monthRef":{"y":2028,"m":9},"calc":"auto","incomeActual":120476,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-mu4txrp","date":"2028-10-05","label":"05.10","type":"zp","half":"second","monthRef":{"y":2028,"m":9},"calc":"auto","incomeActual":109524,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-u3qoa45","date":"2028-10-20","label":"20.10","type":"avans","half":"first","monthRef":{"y":2028,"m":10},"calc":"auto","incomeActual":104545,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-7qhhliv","date":"2028-11-05","label":"05.11","type":"zp","half":"second","monthRef":{"y":2028,"m":10},"calc":"auto","incomeActual":125455,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-o6rewaj","date":"2028-11-20","label":"20.11","type":"avans","half":"first","monthRef":{"y":2028,"m":11},"calc":"auto","incomeActual":115000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-3o1m2tq","date":"2028-12-05","label":"05.12","type":"zp","half":"second","monthRef":{"y":2028,"m":11},"calc":"auto","incomeActual":115000,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-c783eg8","date":"2028-12-20","label":"20.12","type":"avans","half":"first","monthRef":{"y":2028,"m":12},"calc":"auto","incomeActual":120476,"assignedVacations":[],"locked":false,"extraIncomes":[]},{"id":"p-lbu40i5","date":"2029-01-05","label":"05.01","type":"zp","half":"second","monthRef":{"y":2028,"m":12},"calc":"auto","incomeActual":109524,"assignedVacations":[],"locked":false,"extraIncomes":[]}],"categoryOverrides":{},"savingsOverrides":{},"meta":{"holidays":["2027-01-01","2027-01-02","2027-01-03","2027-01-04","2027-01-05","2027-01-06","2027-01-07","2027-01-08","2027-02-23","2027-03-08","2027-05-01","2027-05-09","2027-06-12","2027-11-04"]}}</script>
+<div id="root"></div>
+<script id="app-logic">
+(function(){
+'use strict';
+
+/* ============ constants ============ */
+var HOLIDAYS_2027 = ['2027-01-01','2027-01-02','2027-01-03','2027-01-04','2027-01-05','2027-01-06','2027-01-07','2027-01-08','2027-02-23','2027-03-08','2027-05-01','2027-05-09','2027-06-12','2027-11-04'];
+var MONTH_NAMES = ['','Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+
+var DEFAULT_STATE = {
+  ui: { tab:'dashboard', openPeriods:{}, catPercent:false, selectedYear:null, openWdYears:{} },
+  oklad: { history: [ { effectiveFrom:'2027-01-01', amount:230000 } ] },
+  ndfl: { brackets: [
+    { upTo:2400000, rate:0.13 },
+    { upTo:5000000, rate:0.15 },
+    { upTo:20000000, rate:0.18 },
+    { upTo:50000000, rate:0.20 },
+    { upTo:null, rate:0.22 }
+  ] },
+  income2026: [200000,200000,200000,200000,200000,200000,200000,200000,200000,200000,200000,200000],
+  sickLeaves: [],
+  vacations: [
+    { id:'vac1', start:'2027-04-26', end:'2027-05-02', note:'Отпуск (апрель–май)', manualPay:51500 },
+    { id:'vac2', start:'2027-08-01', end:'2027-08-16', note:'Отпуск (август)', manualPay:102000 }
+  ],
+  categories: [
+    { id:'cat-life', name:'Жизнь', amount:14500, items:[ {name:'Продукты',amount:10000}, {name:'Табак',amount:1500}, {name:'Транспорт',amount:1500} ] },
+    { id:'cat-fixed', name:'Fixed bills', amount:4750, items:[ {name:'Связь',amount:500}, {name:'Интернет',amount:500}, {name:'ЖКХ',amount:3500}, {name:'Подписки',amount:500} ] },
+    { id:'cat-beauty', name:'Beauty', amount:10000, items:[ {name:'Лазер',amount:2500}, {name:'Уход',amount:1000}, {name:'Косметика',amount:600}, {name:'Одежда',amount:3000}, {name:'Стрижка',amount:750}, {name:'Маникюр',amount:2000} ] },
+    { id:'cat-household', name:'Household', amount:2000, items:[] },
+    { id:'cat-health', name:'Health', amount:1500, items:[ {name:'Общее',amount:1500}, {name:'Психотерапевт',amount:4000,season:{from:'10-01',to:'03-31'}} ] },
+    { id:'cat-pet', name:'Pet', amount:4750, items:[ {name:'Корм',amount:2000}, {name:'Приют',amount:1000}, {name:'Наполнитель',amount:750}, {name:'Ветеринар',amount:1250} ] },
+    { id:'cat-joy', name:'Joy', amount:7500, items:[] },
+    { id:'cat-sport', name:'Sport', amount:10500, items:[ {name:'Тренер',amount:7500}, {name:'Танцы',amount:2000}, {name:'Бассейн',amount:1000} ] },
+    { id:'cat-ski', name:'Горные лыжи', amount:6000, items:[], season:{from:'12-01',to:'03-20'} },
+    { id:'cat-gym', name:'Gym Year', amount:750, items:[] },
+    { id:'cat-presents', name:'Presents', amount:4000, items:[] }
+  ],
+  goals: [
+    { id:'goal-travel', name:'Путешествия', priority:1, target:315000, deadline:'', startingBalance:0, completed:false,
+      subgoals:[ { id:'sub-travel-1', name:'К 1 апреля', target:150000, deadline:'2027-04-01' }, { id:'sub-travel-2', name:'К 31 июля', target:315000, deadline:'2027-07-31' } ],
+      withdrawals:[ {date:'2027-04-05',amount:150000,note:'Поездка (апрель)'}, {date:'2027-07-20',amount:315000,note:'Поездка (июль)'} ] },
+    { id:'goal-implant', name:'Имплант', priority:2, target:60000, deadline:'', startingBalance:0, completed:false, subgoals:[], withdrawals:[] },
+    { id:'goal-cushion', name:'Подушка безопасности', priority:3, target:100000, deadline:'2027-12-31', startingBalance:0, completed:false, subgoals:[], withdrawals:[] },
+    { id:'goal-currency', name:'Валюта', priority:4, target:50000, deadline:'2027-12-31', startingBalance:0, completed:false, subgoals:[], withdrawals:[] },
+    { id:'goal-iphone', name:'Айфон', priority:5, target:150000, deadline:'2027-02-05', startingBalance:150000, completed:false, subgoals:[], withdrawals:[] }
+  ],
+  periods: [
+    {id:'p1',date:'2027-01-05',label:'05.01',type:'zp',half:'second',monthRef:{y:2026,m:12},calc:'manual',incomeActual:97750,assignedVacations:[],note:'Фактически приходит 30.12.2026'},
+    {id:'p2',date:'2027-01-20',label:'20.01',type:'avans',half:'first',monthRef:{y:2027,m:1},calc:'auto',incomeActual:66700,assignedVacations:[]},
+    {id:'p3',date:'2027-02-05',label:'05.02',type:'zp',half:'second',monthRef:{y:2027,m:1},calc:'auto',incomeActual:133400,assignedVacations:[]},
+    {id:'p4',date:'2027-02-20',label:'20.02',type:'avans',half:'first',monthRef:{y:2027,m:2},calc:'auto',incomeActual:115847,assignedVacations:[]},
+    {id:'p5',date:'2027-03-05',label:'05.03',type:'zp',half:'second',monthRef:{y:2027,m:2},calc:'auto',incomeActual:84252,assignedVacations:[]},
+    {id:'p6',date:'2027-03-19',label:'19.03',type:'avans',half:'first',monthRef:{y:2027,m:3},calc:'auto',incomeActual:90954,assignedVacations:[]},
+    {id:'p7',date:'2027-04-05',label:'05.04',type:'zp',half:'second',monthRef:{y:2027,m:3},calc:'auto',incomeActual:109145,assignedVacations:[]},
+    {id:'p8',date:'2027-04-20',label:'20.04',type:'avans',half:'first',monthRef:{y:2027,m:4},calc:'auto',incomeActual:100050,assignedVacations:[]},
+    {id:'p9',date:'2027-05-05',label:'05.05',type:'zp',half:'second',monthRef:{y:2027,m:4},calc:'auto',incomeActual:54500,assignedVacations:[{id:'vac1',share:1}]},
+    {id:'p10',date:'2027-05-20',label:'20.05',type:'avans',half:'first',monthRef:{y:2027,m:5},calc:'auto',incomeActual:84250,assignedVacations:[]},
+    {id:'p11',date:'2027-06-05',label:'05.06',type:'zp',half:'second',monthRef:{y:2027,m:5},calc:'auto',incomeActual:115800,assignedVacations:[]},
+    {id:'p12',date:'2027-06-20',label:'20.06',type:'avans',half:'first',monthRef:{y:2027,m:6},calc:'auto',incomeActual:95200,assignedVacations:[]},
+    {id:'p13',date:'2027-07-05',label:'05.07',type:'zp',half:'second',monthRef:{y:2027,m:6},calc:'auto',incomeActual:104800,assignedVacations:[]},
+    {id:'p14',date:'2027-07-20',label:'20.07',type:'avans',half:'first',monthRef:{y:2027,m:7},calc:'auto',incomeActual:100050,assignedVacations:[]},
+    {id:'p15',date:'2027-08-05',label:'05.08',type:'zp',half:'second',monthRef:{y:2027,m:7},calc:'auto',incomeActual:54500,assignedVacations:[{id:'vac2',share:0.5}]},
+    {id:'p16',date:'2027-08-20',label:'20.08',type:'avans',half:'first',monthRef:{y:2027,m:8},calc:'auto',incomeActual:45500,assignedVacations:[{id:'vac2',share:0.5}]},
+    {id:'p17',date:'2027-09-05',label:'05.09',type:'zp',half:'second',monthRef:{y:2027,m:8},calc:'auto',incomeActual:109000,assignedVacations:[]},
+    {id:'p18',date:'2027-09-20',label:'20.09',type:'avans',half:'first',monthRef:{y:2027,m:9},calc:'auto',incomeActual:100050,assignedVacations:[]},
+    {id:'p19',date:'2027-10-05',label:'05.10',type:'zp',half:'second',monthRef:{y:2027,m:9},calc:'auto',incomeActual:100050,assignedVacations:[]},
+    {id:'p20',date:'2027-10-20',label:'20.10',type:'avans',half:'first',monthRef:{y:2027,m:10},calc:'auto',incomeActual:104800,assignedVacations:[]},
+    {id:'p21',date:'2027-11-05',label:'05.11',type:'zp',half:'second',monthRef:{y:2027,m:10},calc:'auto',incomeActual:95200,assignedVacations:[]},
+    {id:'p22',date:'2027-11-20',label:'20.11',type:'avans',half:'first',monthRef:{y:2027,m:11},calc:'auto',incomeActual:90000,assignedVacations:[]},
+    {id:'p23',date:'2027-12-05',label:'05.12',type:'zp',half:'second',monthRef:{y:2027,m:11},calc:'auto',incomeActual:110000,assignedVacations:[]},
+    {id:'p24',date:'2027-12-20',label:'20.12',type:'avans',half:'first',monthRef:{y:2027,m:12},calc:'auto',incomeActual:97750,assignedVacations:[]},
+    {id:'p25',date:'2027-12-31',label:'31.12',type:'zp',half:'second',monthRef:{y:2027,m:12},calc:'auto',incomeActual:97750,assignedVacations:[],note:'Выплата раньше срока из-за новогодних праздников'}
+  ],
+  categoryOverrides: {},
+  savingsOverrides: {},
+  meta: { holidays: HOLIDAYS_2027.slice() }
+};
+
+/* ============ state load / persist ============ */
+function clone(o){ return JSON.parse(JSON.stringify(o)); }
+function uid(p){ return p+'-'+Math.random().toString(36).slice(2,9); }
+
+var state = (function(){
+  var el = document.getElementById('app-state');
+  var s = null;
+  if(el && el.textContent){
+    try{
+      var parsed = JSON.parse(el.textContent);
+      if(parsed && !parsed.__seed__) s = parsed;
+    }catch(e){}
+  }
+  if(!s) return clone(DEFAULT_STATE);
+  /* forward-compat: fill in fields introduced after this state was first saved */
+  if(!s.ui) s.ui = clone(DEFAULT_STATE.ui);
+  if(s.ui.selectedYear===undefined) s.ui.selectedYear = null;
+  if(!s.ui.openWdYears) s.ui.openWdYears = {};
+  if(!s.ndfl) s.ndfl = clone(DEFAULT_STATE.ndfl);
+  (s.goals||[]).forEach(function(g){ if(!g.subgoals) g.subgoals=[]; });
+  (s.periods||[]).forEach(function(p){ if(p.locked===undefined) p.locked=false; if(!p.extraIncomes) p.extraIncomes=[]; });
+  return s;
+})();
+
+var artifactApi = null;
+var publishTimer = null;
+var saveStatus = 'idle';
+
+function scheduleSave(){
+  render();
+  clearTimeout(publishTimer);
+  saveStatus = 'pending';
+  publishTimer = setTimeout(doPublish, 500);
+}
+function buildFullDocument(s){
+  var styleTag = document.getElementById('app-style').outerHTML;
+  var logicTag = document.getElementById('app-logic').outerHTML;
+  var json = JSON.stringify(s).replace(/</g,'\\u003c');
+  return '<!doctype html>\n<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Финансы 2027</title>\n'
+    + styleTag + '\n</head><body>\n'
+    + '<script id="app-state" type="application/json">' + json + '<' + '/script>\n'
+    + '<div id="root"></div>\n'
+    + logicTag + '\n</body></html>';
+}
+async function doPublish(){
+  if(!artifactApi){ saveStatus='local'; updateSaveBadge(); return; }
+  try{
+    var html = buildFullDocument(state);
+    await artifactApi.publish(html);
+    saveStatus = 'saved';
+  }catch(e){
+    saveStatus = 'error';
+  }
+  updateSaveBadge();
+}
+function updateSaveBadge(){
+  var b = document.getElementById('save-badge');
+  if(!b) return;
+  var map = { idle:'', pending:'Сохранение…', saved:'Сохранено', local:'Локально (не опубликовано)', error:'Ошибка сохранения' };
+  b.textContent = map[saveStatus] || '';
+}
+
+/* ============ date / calendar helpers ============ */
+function pad2(n){ return (n<10?'0':'')+n; }
+function isoDate(y,m,d){ return y+'-'+pad2(m)+'-'+pad2(d); }
+function daysInMonth(y,m){ return new Date(y,m,0).getDate(); }
+function dowUTC(y,m,d){ return new Date(Date.UTC(y,m-1,d)).getUTCDay(); }
+function isWorkingDay(y,m,d,holidaySet){
+  var dow = dowUTC(y,m,d);
+  if(dow===0||dow===6) return false;
+  if(holidaySet.has(isoDate(y,m,d))) return false;
+  return true;
+}
+function workingDaysInHalf(y,m,half,st){
+  var holidaySet = new Set(st.meta.holidays);
+  var dim = daysInMonth(y,m);
+  var start = half==='first'?1:16;
+  var end = half==='first'?15:dim;
+  var c=0;
+  for(var d=start; d<=end; d++){ if(isWorkingDay(y,m,d,holidaySet)) c++; }
+  return c;
+}
+function workingDaysInMonth(y,m,st){ return workingDaysInHalf(y,m,'first',st)+workingDaysInHalf(y,m,'second',st); }
+function calendarDaysInclusive(startISO,endISO){
+  var s=new Date(startISO+'T00:00:00Z'), e=new Date(endISO+'T00:00:00Z');
+  return Math.round((e-s)/86400000)+1;
+}
+function todayISO(){
+  var d = new Date();
+  return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());
+}
+
+/* ============ seasonal categories (MM-DD ranges, wrap around new year) ============ */
+function parseDM(str){
+  var m = String(str||'').trim().match(/^(\d{1,2})[.\-\/](\d{1,2})$/);
+  if(!m) return null;
+  var d=parseInt(m[1],10), mo=parseInt(m[2],10);
+  if(d<1||d>31||mo<1||mo>12) return null;
+  return pad2(mo)+'-'+pad2(d);
+}
+function formatDM(md){
+  if(!md) return '';
+  var parts = String(md).split('-');
+  if(parts.length<2) return '';
+  return parts[1]+'.'+parts[0];
+}
+function inSeason(dateISO, season){
+  if(!season || !season.from || !season.to) return true;
+  var md = dateISO.slice(5,10);
+  if(season.from<=season.to) return md>=season.from && md<=season.to;
+  return md>=season.from || md<=season.to;
+}
+
+/* ============ multi-year planning ============ */
+function planYears(st){
+  var seen = {}, out = [];
+  st.periods.forEach(function(p){ if(!seen[p.monthRef.y]){ seen[p.monthRef.y]=true; out.push(p.monthRef.y); } });
+  out.sort(function(a,b){return a-b;});
+  return out;
+}
+function currentYear(st){
+  var years = planYears(st);
+  if(!years.length) return null;
+  if(st.ui.selectedYear!=null && years.indexOf(st.ui.selectedYear)!==-1) return st.ui.selectedYear;
+  var todayY = parseInt(todayISO().slice(0,4),10);
+  return years.indexOf(todayY)!==-1 ? todayY : years[0];
+}
+function yearTabsNav(st){
+  var years = planYears(st);
+  if(years.length<=1) return '';
+  var active = currentYear(st);
+  return '<div class="row wrap" style="gap:4px;margin-bottom:12px;">' + years.map(function(y){
+    return '<button class="small'+(y===active?' primary':'')+'" data-select-year="'+y+'">'+y+'</button>';
+  }).join('') + '</div>';
+}
+function planYearsLabel(st){
+  var ys = planYears(st);
+  if(!ys.length) return '';
+  return ys.length===1 ? String(ys[0]) : ys[0]+'–'+ys[ys.length-1];
+}
+function generateYearPeriods(year, st){
+  var out=[];
+  for(var m=1;m<=12;m++){
+    var avansDate = isoDate(year,m,20);
+    var avansP = {id:uid('p'), date:avansDate, label:pad2(20)+'.'+pad2(m), type:'avans', half:'first', monthRef:{y:year,m:m}, calc:'auto', incomeActual:0, assignedVacations:[], locked:false};
+    avansP.incomeActual = calcPeriodIncomeFormula(avansP, st) || 0;
+    out.push(avansP);
+    var zpY = m===12?year+1:year, zpM = m===12?1:m+1;
+    var zpDate = isoDate(zpY,zpM,5);
+    var zpP = {id:uid('p'), date:zpDate, label:pad2(5)+'.'+pad2(zpM), type:'zp', half:'second', monthRef:{y:year,m:m}, calc:'auto', incomeActual:0, assignedVacations:[], locked:false};
+    zpP.incomeActual = calcPeriodIncomeFormula(zpP, st) || 0;
+    out.push(zpP);
+  }
+  out.sort(function(a,b){return a.date<b.date?-1:1;});
+  return out;
+}
+function ensurePastPeriodsLocked(st){
+  var today = todayISO();
+  var toLock = st.periods.filter(function(p){ return !p.locked && p.date < today; });
+  if(!toLock.length) return false;
+  var sim = simulate(st);
+  var byId = {}; sim.rows.forEach(function(r){ byId[r.period.id]=r; });
+  toLock.forEach(function(p){
+    var r = byId[p.id];
+    if(r){
+      if(!st.savingsOverrides[p.id]) st.savingsOverrides[p.id] = {};
+      Object.keys(r.allocations).forEach(function(gid){ st.savingsOverrides[p.id][gid] = Math.round(r.allocations[gid]); });
+    }
+    p.locked = true;
+  });
+  return true;
+}
+
+/* ============ salary ============ */
+function okladForDate(dateISO, st){
+  var hist = st.oklad.history.slice().sort(function(a,b){ return a.effectiveFrom<b.effectiveFrom?-1:1; });
+  var val = hist.length?hist[0].amount:0;
+  for(var i=0;i<hist.length;i++){ if(hist[i].effectiveFrom<=dateISO) val=hist[i].amount; }
+  return val;
+}
+function calcPeriodIncomeFormula(period, st){
+  if(period.calc==='manual') return null;
+  var y=period.monthRef.y, m=period.monthRef.m;
+  var totalWD = workingDaysInMonth(y,m,st);
+  if(totalWD<=0) return null;
+  var halfWD = workingDaysInHalf(y,m,period.half,st);
+  var oklad = okladForDate(period.date, st);
+  return Math.round(oklad*halfWD/totalWD);
+}
+
+/* ============ НДФЛ (прогрессивная шкала, оклад в настройках вводится gross) ============ */
+function ndflBracketTop(b){ return (b.upTo===null || b.upTo===undefined) ? Infinity : b.upTo; }
+function ndflOwedOnCumulative(cum, brackets){
+  var sorted = brackets.slice().sort(function(a,b){ return ndflBracketTop(a)-ndflBracketTop(b); });
+  var tax=0, prev=0;
+  for(var i=0;i<sorted.length;i++){
+    var top = ndflBracketTop(sorted[i]);
+    if(cum>prev){
+      var slice = Math.min(cum, top)-prev;
+      tax += slice*sorted[i].rate;
+      prev = top;
+    } else break;
+  }
+  return tax;
+}
+function netFromGross(grossAmount, cumGrossBefore, brackets){
+  var cumAfter = cumGrossBefore+grossAmount;
+  var taxBefore = ndflOwedOnCumulative(cumGrossBefore, brackets);
+  var taxAfter = ndflOwedOnCumulative(cumAfter, brackets);
+  var tax = Math.round(taxAfter-taxBefore);
+  return { gross: grossAmount, tax: tax, net: grossAmount-tax, cumGrossAfter: cumAfter };
+}
+function estimateMonthlyNet(grossMonthly, brackets){
+  var annualTax = ndflOwedOnCumulative(grossMonthly*12, brackets);
+  return Math.round(grossMonthly - annualTax/12);
+}
+function computeSalaryNetPlan(st){
+  var periods = st.periods.slice().sort(function(a,b){ return a.date<b.date?-1:1; });
+  var cum = 0, byPeriod = {};
+  periods.forEach(function(p){
+    var gross = calcPeriodIncomeFormula(p, st);
+    if(gross==null){ byPeriod[p.id]=null; return; }
+    var r = netFromGross(gross, cum, st.ndfl.brackets);
+    cum = r.cumGrossAfter;
+    byPeriod[p.id] = r;
+  });
+  return byPeriod;
+}
+
+/* ============ vacation pay ============ */
+function monthsBefore(y,m,count){
+  var arr=[], yy=y, mm=m;
+  for(var i=0;i<count;i++){ mm--; if(mm===0){ mm=12; yy--; } arr.unshift({y:yy,m:mm}); }
+  return arr;
+}
+function monthlyIncomeFor(y,m,st){
+  if(y===2026 && m>=1 && m<=12) return st.income2026[m-1]||0;
+  var sum=0, found=false;
+  st.periods.forEach(function(p){ if(p.monthRef.y===y && p.monthRef.m===m){ sum+=p.incomeActual||0; found=true; } });
+  return found?sum:0;
+}
+function sickDaysInMonth(y,m,st){
+  var dim=daysInMonth(y,m);
+  var start=new Date(Date.UTC(y,m-1,1)), end=new Date(Date.UTC(y,m-1,dim));
+  var days=0;
+  (st.sickLeaves||[]).forEach(function(sl){
+    if(!sl.start||!sl.end) return;
+    var s=new Date(sl.start+'T00:00:00Z'), e=new Date(sl.end+'T00:00:00Z');
+    var os=s>start?s:start, oe=e<end?e:end;
+    if(os<=oe) days += Math.round((oe-os)/86400000)+1;
+  });
+  return Math.min(days,dim);
+}
+function raiseIndexFactor(y,m,vacationStartISO,st){
+  var hist = st.oklad.history.slice().sort(function(a,b){ return a.effectiveFrom<b.effectiveFrom?-1:1; });
+  var monthEndISO = isoDate(y,m,daysInMonth(y,m));
+  var rateAtMonth = hist.length?hist[0].amount:0;
+  hist.forEach(function(h){ if(h.effectiveFrom<=monthEndISO) rateAtMonth=h.amount; });
+  var rateAtVacation = hist.length?hist[0].amount:0;
+  hist.forEach(function(h){ if(h.effectiveFrom<=vacationStartISO) rateAtVacation=h.amount; });
+  if(rateAtMonth>0 && rateAtVacation>rateAtMonth) return rateAtVacation/rateAtMonth;
+  return 1;
+}
+function avgDailyEarnings(vacationStartISO, st){
+  var y=parseInt(vacationStartISO.slice(0,4),10), m=parseInt(vacationStartISO.slice(5,7),10);
+  var months = monthsBefore(y,m,12);
+  var totalIncome=0, totalCoeff=0;
+  months.forEach(function(mo){
+    var inc = monthlyIncomeFor(mo.y,mo.m,st);
+    inc = inc*raiseIndexFactor(mo.y,mo.m,vacationStartISO,st);
+    var sick = sickDaysInMonth(mo.y,mo.m,st);
+    var dim = daysInMonth(mo.y,mo.m);
+    var coeff = sick>0 ? (29.3/dim)*(dim-sick) : 29.3;
+    totalIncome+=inc; totalCoeff+=coeff;
+  });
+  if(totalCoeff<=0) return 0;
+  return totalIncome/totalCoeff;
+}
+function calcVacationPayFormula(vac, st){
+  if(!vac.start||!vac.end) return null;
+  var avg = avgDailyEarnings(vac.start, st);
+  var days = calendarDaysInclusive(vac.start, vac.end);
+  return Math.round(avg*days);
+}
+function vacationPayForPeriod(period, st){
+  var total=0;
+  (period.assignedVacations||[]).forEach(function(a){
+    var vac = st.vacations.find(function(v){ return v.id===a.id; });
+    if(vac) total += Math.round((vac.manualPay||0)*(a.share!=null?a.share:1));
+  });
+  return total;
+}
+
+/* ============ categories (with optional seasonal date-range restriction) ============ */
+function categoryPlannedTotalForDate(cat, dateISO){
+  if(cat.season && dateISO && !inSeason(dateISO, cat.season)) return 0;
+  if(cat.items && cat.items.length){
+    return cat.items.reduce(function(s,it){
+      if(it.season && dateISO && !inSeason(dateISO, it.season)) return s;
+      return s+(it.amount||0);
+    },0);
+  }
+  return cat.amount||0;
+}
+function categoryPlannedTotal(cat){
+  return categoryPlannedTotalForDate(cat, null);
+}
+function categoriesTemplateTotal(st){
+  return st.categories.reduce(function(s,c){ return s+categoryPlannedTotal(c); },0);
+}
+function categoriesTotalForPeriod(period, st){
+  var ov = st.categoryOverrides[period.id];
+  var total=0;
+  st.categories.forEach(function(c){
+    var planned = categoryPlannedTotalForDate(c, period.date);
+    total += (ov && ov[c.id]!==undefined) ? ov[c.id] : planned;
+  });
+  return total;
+}
+
+/* ============ savings milestones (подцели) ============
+   Each milestone is an INCREMENTAL amount: reaching it consumes that much fresh savings,
+   then the next milestone starts counting from zero again (a later withdrawal never
+   "gives back" progress already credited toward an earlier, already-achieved milestone —
+   this is what lets the goal's overall target equal the sum of its milestones). */
+function goalMilestones(g){
+  if(g.subgoals && g.subgoals.length) return g.subgoals;
+  return [ { id:'_main', target: g.target, deadline: g.deadline } ];
+}
+function goalFinalTarget(g){
+  var ms = goalMilestones(g);
+  return ms.reduce(function(s,m){ return s+(m.target||0); },0);
+}
+/* How much of the goal's cumulative target has been earned so far: the sum of every
+   fully-completed milestone's target, plus progress within the current (incomplete) one.
+   This is what the progress bar compares against goalFinalTarget — it only ever grows,
+   so it reaches 100% exactly when every milestone has been funded, and stays there even
+   after the money is later withdrawn/spent. */
+function goalCumulativeProgress(g, sim){
+  var ms = goalMilestones(g);
+  var idx = (sim.finalPhaseIdx && sim.finalPhaseIdx[g.id]) || 0;
+  var sum = 0;
+  for(var i=0;i<idx && i<ms.length;i++) sum += ms[i].target||0;
+  if(idx < ms.length) sum += (sim.finalPhaseSaved && sim.finalPhaseSaved[g.id]) || 0;
+  return sum;
+}
+function achievedDateLabel(date, prefix, prefixPre){
+  if(date==='pre') return prefixPre;
+  return prefix+ruDate(date);
+}
+function milestoneAchievements(g, sim){
+  var ms = goalMilestones(g);
+  var dates = (sim.milestoneDates && sim.milestoneDates[g.id]) || ms.map(function(){ return null; });
+  return ms.map(function(m,i){ return { milestone:m, achievedDate: dates[i]!==undefined?dates[i]:null }; });
+}
+function milestoneStatusPill(m, achievedDate){
+  if(achievedDate){
+    if(achievedDate==='pre') return { label:'Уже накоплено', cls:'ok' };
+    if(!m.deadline) return { label:'Прогноз: к '+ruDate(achievedDate), cls:'ok' };
+    return achievedDate<=m.deadline ? { label:'В графике (к '+ruDate(achievedDate)+')', cls:'ok' } : { label:'Позже срока (к '+ruDate(achievedDate)+')', cls:'warn' };
+  }
+  if(!m.deadline) return { label:'Не достигается в 2027 году', cls:'danger' };
+  return { label:'Не достигается к '+ruDate(m.deadline), cls:'danger' };
+}
+function goalOverallStatus(g, sim){
+  if(g.completed) return { label:'Выполнена', cls:'ok' };
+  var ms = goalMilestones(g);
+  var idx = (sim.finalPhaseIdx && sim.finalPhaseIdx[g.id]) || 0;
+  if(idx>=ms.length) return { label:'Цель достигнута', cls:'ok' };
+  return { label:'В работе', cls:'warn' };
+}
+
+/* ============ simulation / waterfall ============ */
+function simulate(st){
+  var periods = st.periods.slice().sort(function(a,b){ return a.date<b.date?-1:1; });
+  var goalSaved = {};
+  st.goals.forEach(function(g){ goalSaved[g.id]=g.startingBalance||0; });
+
+  /* phase tracking: per goal, which milestone is currently active and how much has been
+     credited toward it since it started (see comment above goalMilestones). */
+  var phaseIdx={}, phaseSaved={}, milestoneDates={}, msByGoal={};
+  st.goals.forEach(function(g){
+    var ms = goalMilestones(g);
+    msByGoal[g.id]=ms;
+    milestoneDates[g.id]=ms.map(function(){ return null; });
+    phaseIdx[g.id]=0;
+    phaseSaved[g.id]=g.startingBalance||0;
+    while(phaseIdx[g.id]<ms.length && phaseSaved[g.id] >= ms[phaseIdx[g.id]].target-1e-9){
+      phaseSaved[g.id]-=ms[phaseIdx[g.id]].target;
+      milestoneDates[g.id][phaseIdx[g.id]]='pre';
+      phaseIdx[g.id]++;
+    }
+  });
+  function depositToGoal(gid, amount, dateISO){
+    if(!amount) return;
+    var ms = msByGoal[gid];
+    if(!ms) return;
+    goalSaved[gid]=(goalSaved[gid]||0)+amount;
+    phaseSaved[gid]=(phaseSaved[gid]||0)+amount;
+    while(phaseIdx[gid]<ms.length && phaseSaved[gid] >= ms[phaseIdx[gid]].target-1e-9){
+      phaseSaved[gid]-=ms[phaseIdx[gid]].target;
+      milestoneDates[gid][phaseIdx[gid]]=dateISO;
+      phaseIdx[gid]++;
+    }
+  }
+
+  var rows=[];
+  periods.forEach(function(p){
+    var salary = p.incomeActual||0;
+    var vac = vacationPayForPeriod(p, st);
+    /* manual/ad-hoc income (bonus, gift, etc): the full amount joins totalIncome, while the
+       portion marked expensesPct% is folded into this period's expenses so it doesn't flow
+       into the savings waterfall — the remaining (100-expensesPct)% stays part of "free" and
+       gets allocated to goals exactly like any other free cash. */
+    var extraTotal = 0, extraExpensePortion = 0;
+    (p.extraIncomes||[]).forEach(function(e){
+      var amt = e.amount||0;
+      var pct = e.expensesPct!=null ? e.expensesPct : 0;
+      extraTotal += amt;
+      extraExpensePortion += amt*pct/100;
+    });
+    var totalIncome = salary+vac+extraTotal;
+    var expenses = categoriesTotalForPeriod(p, st) + extraExpensePortion;
+    st.goals.forEach(function(g){
+      (g.withdrawals||[]).forEach(function(w){ if(w.date===p.date) goalSaved[g.id]-=w.amount; });
+    });
+    var free = totalIncome - expenses;
+    var allocations = {};
+    var override = st.savingsOverrides[p.id];
+    /* a locked period never falls through to auto-calc, even if its frozen override is an
+       empty object (i.e. "nothing was allocated, and that's the fixed historical fact") */
+    if(p.locked || (override && Object.keys(override).length)){
+      Object.keys(override||{}).forEach(function(gid){
+        var amt = override[gid]||0;
+        allocations[gid]=amt; depositToGoal(gid, amt, p.date); free-=amt;
+      });
+    } else if(free>0){
+      var active = st.goals.filter(function(g){ return !g.completed; }).slice().sort(function(a,b){ return a.priority-b.priority; });
+      var reqs = active.map(function(g){
+        var ms = msByGoal[g.id], idx = phaseIdx[g.id];
+        if(idx>=ms.length) return { g:g, remaining:0, per:0, overdue:false, deadline:'' };
+        var remaining = Math.max(0, ms[idx].target-phaseSaved[g.id]);
+        /* Look past the current milestone if IT has no deadline of its own, to find the nearest
+           deadline the goal is really working toward. A goal is funded strictly in order (you
+           can't reach "Ира ДР" before "Вика ДР" is paid off), so if an un-dated milestone like
+           "Вика ДР" happens to be the one currently active, the OLD code saw no deadline at all
+           for the whole goal — even though the very next milestone in the same queue ("Ира ДР")
+           has a real, looming deadline. That made the goal look completely unhurried and it lost
+           every round to goals with SOME deadline, however distant, so it went unfunded for
+           months until "Ира ДР"'s own deadline had already passed. Scanning forward past every
+           un-dated milestone to the next dated one (accumulating what each of them still needs
+           along the way) gives the goal its true urgency back, while money still lands in the
+           current milestone first and only spills into the next one once it's full (depositToGoal
+           does that automatically) — so nothing about the funding ORDER within the goal changes,
+           only how urgently the goal competes for money against every OTHER goal right now. */
+        var lookIdx = idx, combinedNeed = remaining, governingDeadline = ms[idx].deadline || '';
+        while(!governingDeadline && lookIdx+1 < ms.length){
+          lookIdx++;
+          combinedNeed += ms[lookIdx].target||0;
+          governingDeadline = ms[lookIdx].deadline || '';
+        }
+        var periodsLeft = governingDeadline ? periods.filter(function(pp){ return pp.date>=p.date && pp.date<=governingDeadline; }).length : 0;
+        var overdue = !!(governingDeadline && governingDeadline < p.date && combinedNeed>0);
+        var per = combinedNeed<=0 ? 0 : (governingDeadline ? ((overdue||periodsLeft<=0) ? combinedNeed : combinedNeed/periodsLeft) : 0);
+        return { g:g, remaining:remaining, per:per, overdue:overdue, deadline: governingDeadline };
+      });
+      /* Money goes to whichever goal's CURRENT milestone (subgoal, or the goal itself when it
+         has none) has the nearest deadline right now — true earliest-deadline-first — not
+         strictly by priority and not by raw required-per-period amount. Sorting by amount alone
+         (an earlier version of this code) let one large, moderately-urgent milestone (e.g. a
+         315 000 trip due in a few months) permanently out-rank a tiny but much more imminent one
+         (e.g. a 3 000 birthday gift due next week), because the big milestone's per-period pace
+         is simply bigger in absolute rubles even though it has far more slack. Sorting by the
+         deadline itself fixes that: whichever milestone is due soonest is funded first, however
+         small, and once it's done the next-soonest (which may belong to the same goal or a
+         different one) takes over — so "Подарки"'s small early birthdays get filled first, then
+         money temporarily flows past it to "Путешествия"/"Оплата зала" until its own next
+         birthday's deadline is nearer again. A higher-priority goal is still protected: as its
+         own deadline gets closer than everything else competing for the same money, it moves to
+         the front of this same sort automatically. Priority only breaks ties — equal deadlines,
+         or goals with no deadline at all (those always sort after every dated one). */
+      var urgencyOrder = reqs.slice().sort(function(a,b){
+        var ka = a.deadline || '9999-99-99', kb = b.deadline || '9999-99-99';
+        if(ka!==kb) return ka<kb?-1:1;
+        return a.g.priority-b.g.priority;
+      });
+      urgencyOrder.forEach(function(r){
+        if(free<=0) return;
+        var give = Math.min(r.per, free, r.remaining);
+        if(give>0.0001){ allocations[r.g.id]=(allocations[r.g.id]||0)+give; depositToGoal(r.g.id, give, p.date); free-=give; }
+      });
+      /* leftover cash cascades down the same urgency order, but each goal is capped at what its
+         active milestone still needs — once a goal's target is met it is skipped, so money
+         no longer keeps piling into it past 100% (this was the "95 000 / 60 000" bug). */
+      if(free>0.5 && urgencyOrder.length){
+        for(var i=0;i<urgencyOrder.length && free>0.5;i++){
+          var g = urgencyOrder[i].g, ms = msByGoal[g.id], idx = phaseIdx[g.id];
+          if(idx>=ms.length) continue;
+          var remaining = Math.max(0, ms[idx].target-phaseSaved[g.id]);
+          if(remaining<=0) continue;
+          var give = Math.min(remaining, free);
+          if(give>0.0001){ allocations[g.id]=(allocations[g.id]||0)+give; depositToGoal(g.id, give, p.date); free-=give; }
+        }
+      }
+    }
+    rows.push({ period:p, salary:salary, vacationPay:vac, totalIncome:totalIncome, expenses:expenses,
+      free: totalIncome-expenses, unallocated: free, allocations: allocations, goalSnapshot: clone(goalSaved) });
+  });
+  return { rows: rows, finalGoalSaved: goalSaved, milestoneDates: milestoneDates, finalPhaseIdx: phaseIdx, finalPhaseSaved: phaseSaved };
+}
+
+/* ============ formatting ============ */
+function fmt(n){ n=Math.round(n||0); return n.toLocaleString('ru-RU')+' ₽'; }
+function fmtSigned(n){ n=Math.round(n||0); return (n>=0?'+':'')+fmt(n); }
+function parseNum(v){ var n=parseFloat(String(v).replace(/[^\d.-]/g,'')); return isNaN(n)?0:Math.round(n); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+function ruDate(iso){
+  if(!iso) return '';
+  var parts = iso.split('-'); if(parts.length<3) return iso;
+  return parts[2]+'.'+parts[1]+'.'+parts[0];
+}
+
+/* ============ UI state (persisted inside state.ui so a republish-triggered reload keeps your place) ============ */
+var ui = state.ui;
+
+/* ============ render ============ */
+var root;
+function render(){
+  if(!root) root = document.getElementById('root');
+  if(ensurePastPeriodsLocked(state)){
+    clearTimeout(publishTimer); saveStatus='pending'; publishTimer=setTimeout(doPublish,500);
+  }
+  var sim = simulate(state);
+  var body = '';
+  if(ui.tab==='dashboard') body = renderDashboard(sim);
+  else if(ui.tab==='periods') body = renderPeriods(sim);
+  else if(ui.tab==='categories') body = renderCategories(sim);
+  else if(ui.tab==='goals') body = renderGoals(sim);
+  else if(ui.tab==='settings') body = renderSettings(sim);
+  root.innerHTML =
+    '<div class="topbar"><div class="topbar-inner">'
+    + '<div class="brand"><h1 style="font-size:19px;">Финансы</h1><span class="badge-year">'+esc(planYearsLabel(state))+'</span></div>'
+    + '<span class="savebadge" id="save-badge"></span>'
+    + '</div>'
+    + '<nav class="tabs">'
+    + tabBtn('dashboard','Обзор') + tabBtn('periods','Доходы') + tabBtn('categories','Категории') + tabBtn('goals','Накопления') + tabBtn('settings','Настройки')
+    + '</nav></div>'
+    + '<main>' + body + '</main>';
+  updateSaveBadge();
+  attachEvents(sim);
+}
+function tabBtn(id,label){ return '<button data-tab="'+id+'" class="'+(ui.tab===id?'active':'')+'">'+label+'</button>'; }
+
+/* ---------- dashboard ---------- */
+function renderDashboard(sim){
+  var activeYear = currentYear(state);
+  var yearRows = activeYear==null ? sim.rows : sim.rows.filter(function(r){ return r.period.monthRef.y===activeYear; });
+  var totalIncome=0,totalExpenses=0,totalAllocated=0,totalUnallocated=0,shortfalls=0;
+  yearRows.forEach(function(r){
+    totalIncome+=r.totalIncome; totalExpenses+=r.expenses; totalUnallocated+=Math.max(0,r.unallocated);
+    Object.keys(r.allocations).forEach(function(k){ totalAllocated+=r.allocations[k]; });
+    if(r.free<0) shortfalls++;
+  });
+  var tabsNav = yearTabsNav(state);
+  var cards = (activeYear!=null ? '<h2 style="font-size:15px;margin:0 0 2px;">'+activeYear+' год</h2>' : '')
+    + '<div class="grid cols-4">'
+    + statCard('Доход за год', fmt(totalIncome))
+    + statCard('Расходы за год', fmt(totalExpenses))
+    + statCard('Отложено в цели', fmt(totalAllocated))
+    + statCard('Свободный остаток', fmt(totalUnallocated))
+    + '</div>';
+  var shortfallBox = shortfalls ? '<div class="info-box" style="border:1px solid var(--danger);color:var(--danger);background:var(--danger-soft);"><b>'+shortfalls+' период(а/ов)</b> с дефицитом — расходы превышают доход. Загляните на вкладку «Периоды».</div>' : '';
+  var goalsHtml = '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Цели накоплений</h2></div><div class="grid cols-2">'
+    + state.goals.slice().sort(function(a,b){return a.priority-b.priority;}).map(function(g){
+        var finalTarget = goalFinalTarget(g);
+        var saved = goalCumulativeProgress(g, sim);
+        var potBalance = sim.finalGoalSaved[g.id]||0;
+        var pctRaw = finalTarget>0 ? Math.round(saved/finalTarget*100) : 0;
+        var pct = Math.max(0, Math.min(100, pctRaw));
+        var st_ = goalOverallStatus(g, sim);
+        var hasSub = g.subgoals && g.subgoals.length;
+        var achievements = milestoneAchievements(g, sim);
+        /* For a goal with a single (non-subgoal) target and a deadline, show the same
+           on-track/late traffic-light pill that subgoals already get via milestoneStatusPill,
+           instead of just echoing the deadline as inert text — a bare "к 15.02.2027" reads as
+           a promise the goal will land on time even when the simulation shows it won't. */
+        var deadlineLabel;
+        if(hasSub){
+          deadlineLabel = '';
+        } else if(g.deadline){
+          var soloPill0 = milestoneStatusPill(goalMilestones(g)[0], achievements[0].achievedDate);
+          deadlineLabel = '<span class="pill '+soloPill0.cls+'" style="font-size:10px;">'+soloPill0.label+'</span>';
+        } else {
+          deadlineLabel = achievements[0].achievedDate ? achievedDateLabel(achievements[0].achievedDate,'прогноз: ','уже накоплено') : 'без срока';
+        }
+        var subRows = hasSub ? '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">'
+          + g.subgoals.map(function(sg,si){
+              var pill = milestoneStatusPill(sg, achievements[si]?achievements[si].achievedDate:null);
+              return '<div class="row between" style="font-size:11px;"><span class="muted">'+esc(sg.name)+' · '+fmt(sg.target)+'</span><span class="pill '+pill.cls+'" style="font-size:10px;">'+pill.label+'</span></div>';
+            }).join('')
+          + '</div>' : '';
+        return '<div class="stat" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;">'
+          + '<div class="row between"><b>'+esc(g.name)+'</b><span class="pill '+st_.cls+'">'+st_.label+'</span></div>'
+          + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:6px 0;"><i style="width:'+pct+'%"></i></div>'
+          + '<div class="row between muted" style="font-size:12px;"><span class="num">'+fmt(saved)+' / '+fmt(finalTarget)+'</span><span>'+deadlineLabel+'</span></div>'
+          + (potBalance!==saved ? '<div class="muted" style="font-size:11px;">на счету сейчас: '+fmt(potBalance)+'</div>' : '')
+          + subRows
+          + '</div>';
+      }).join('')
+    + '</div></div>';
+  var vacForYear = activeYear==null ? state.vacations : state.vacations.filter(function(v){ return v.start && parseInt(v.start.slice(0,4),10)===activeYear; });
+  var vacHtml = '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Отпуска и отпускные</h2></div>'
+    + vacForYear.map(function(v){
+        var formula = calcVacationPayFormula(v, state);
+        var days = v.start&&v.end ? calendarDaysInclusive(v.start,v.end) : 0;
+        return '<div class="row between" style="padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;">'
+          + '<div><b>'+esc(v.note||'Отпуск')+'</b><div class="muted" style="font-size:12px;">'+ruDate(v.start)+' — '+ruDate(v.end)+' ('+days+' дн.)</div></div>'
+          + '<div style="text-align:right;"><div class="num">'+fmt(v.manualPay)+' <span class="muted">вручную</span></div>'
+          + '<div class="num muted" style="font-size:12px;">формула: '+(formula==null?'—':fmt(formula))+'</div></div>'
+          + '</div>';
+      }).join('') + (!vacForYear.length ? '<div class="muted" style="font-size:12px;padding:8px 0;">Нет отпусков в '+activeYear+' году</div>' : '') + '</div>';
+  return tabsNav + cards + shortfallBox + goalsHtml + vacHtml;
+}
+function statCard(label,val){
+  return '<div class="card stat"><div class="v">'+val+'</div><div class="l">'+esc(label)+'</div></div>';
+}
+
+/* ---------- periods ---------- */
+function renderPeriods(sim){
+  var plan = computeSalaryNetPlan(state);
+  var activeYear = currentYear(state);
+  var yearRows = activeYear==null ? sim.rows : sim.rows.filter(function(r){ return r.period.monthRef.y===activeYear; });
+  return yearTabsNav(state)
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Доходы и выплаты'+(activeYear!=null?' '+activeYear:'')+'</h2><span class="muted" style="font-size:12px;">аванс — за 1-ю половину месяца, зарплата — за 2-ю</span></div>'
+    + '<div style="display:flex;flex-direction:column;gap:8px;">'
+    + yearRows.map(function(r){ return renderPeriodCard(r, state, plan); }).join('')
+    + (!yearRows.length ? '<div class="muted" style="font-size:12px;padding:8px 0;">Нет периодов в '+activeYear+' году</div>' : '')
+    + '</div></div>';
+}
+function renderPeriodCard(r, st, plan){
+  var p = r.period;
+  var open = !!ui.openPeriods[p.id];
+  var typeLabel = p.type==='avans' ? 'Аванс' : 'Зарплата';
+  var pd = plan[p.id];
+  var shortfall = r.free<0;
+  var dis = p.locked ? ' disabled' : '';
+  var head = '<div class="period-head" data-toggle-period="'+p.id+'">'
+    + '<span class="chev">▸</span>'
+    + '<span class="period-date">'+p.label+'</span>'
+    + '<span class="pill">'+typeLabel+'</span>'
+    + (p.locked ? '<span class="pill warn">🔒</span>' : '')
+    + (r.vacationPay ? '<span class="pill ok">отпускные '+fmt(r.vacationPay)+'</span>' : '')
+    + (shortfall ? '<span class="pill danger">дефицит</span>' : '')
+    + '<span style="margin-left:auto;" class="num">'+fmt(r.totalIncome)+'</span>'
+    + '<span class="muted num">− '+fmt(r.expenses)+'</span>'
+    + '<span class="num" style="font-weight:700;color:'+(r.free<0?'var(--danger)':'var(--accent-ink)')+';">'+fmtSigned(r.free)+'</span>'
+    + '</div>';
+  var catRows = st.categories.map(function(c){
+    var ov = st.categoryOverrides[p.id];
+    var planned = categoryPlannedTotalForDate(c, p.date);
+    var val = (ov && ov[c.id]!==undefined) ? ov[c.id] : planned;
+    var outSeason = c.season && !inSeason(p.date, c.season);
+    return '<tr><td>'+esc(c.name)+(outSeason?' <span class="muted" style="font-size:10px;">(не сезон)</span>':'')+'</td><td class="num"><input type="text" inputmode="numeric" class="num" data-cat-override data-period="'+p.id+'" data-cat="'+c.id+'" value="'+val+'"'+dis+'></td></tr>';
+  }).join('');
+  var allocRows = state.goals.slice().sort(function(a,b){return a.priority-b.priority;}).map(function(g){
+    var val = r.allocations[g.id] || 0;
+    var bal = r.goalSnapshot[g.id]||0;
+    return '<tr><td>'+esc(g.name)+'</td><td class="num"><input type="text" inputmode="numeric" class="num" data-alloc-override data-period="'+p.id+'" data-goal="'+g.id+'" value="'+Math.round(val)+'"'+dis+'></td><td class="num muted">'+fmt(bal)+'</td></tr>';
+  }).join('');
+  var hasOverride = !!(st.savingsOverrides[p.id] && Object.keys(st.savingsOverrides[p.id]).length);
+  var lockRow = '<div class="row between" style="margin-bottom:10px;">'
+    + (p.locked
+        ? '<span class="pill warn">🔒 Период зафиксирован — авто-расчёт его больше не трогает</span><button class="small ghost" data-unlock-period="'+p.id+'">Разблокировать</button>'
+        : '<span class="muted" style="font-size:12px;">Период открыт — доход, расходы и распределение пересчитываются автоматически</span><button class="small ghost" data-lock-period="'+p.id+'">🔒 Зафиксировать</button>')
+    + '</div>';
+  var extraHtml = (p.extraIncomes||[]).map(function(e,ei){
+    return '<div class="item-row" style="grid-template-columns:1fr 90px 70px auto;">'
+      + '<input type="text" placeholder="комментарий" data-extra-note data-period="'+p.id+'" data-idx="'+ei+'" value="'+esc(e.note||'')+'"'+dis+'>'
+      + '<input type="text" inputmode="numeric" class="num" data-extra-amount data-period="'+p.id+'" data-idx="'+ei+'" value="'+e.amount+'"'+dis+'>'
+      + '<input type="text" inputmode="numeric" class="num" data-extra-pct data-period="'+p.id+'" data-idx="'+ei+'" value="'+e.expensesPct+'" title="% суммы, уходящий на расходы; остальное — на цели"'+dis+'>'
+      + '<button class="ghost small" data-extra-del data-period="'+p.id+'" data-idx="'+ei+'"'+dis+'>✕</button>'
+      + '</div>';
+  }).join('');
+  var body = '<div class="period-body">'
+    + (p.note ? '<div class="small-note">'+esc(p.note)+'</div>' : '')
+    + lockRow
+    + '<div class="grid cols-2" style="margin-top:10px;">'
+    + '<div><label>Дата выплаты</label><input type="date" data-period-date data-period="'+p.id+'" value="'+p.date+'"'+dis+'>'
+    + '<div class="small-note">Название периода в списке обновится вместе с датой. Условный месяц периода (для расчёта аванс/зарплата) при этом не меняется.</div></div>'
+    + '<div><label>Отпускные в этом периоде</label><div class="num" style="padding:6px 0;">'+fmt(r.vacationPay)+'</div>'
+    + '<div class="small-note">'+(p.assignedVacations&&p.assignedVacations.length ? 'из вкладки «Настройки → Отпуска»' : 'нет назначенных отпусков')+'</div></div>'
+    + '</div>'
+    + '<div class="grid cols-2" style="margin-top:10px;">'
+    + '<div><label>Доход на руки (факт)</label><input type="text" inputmode="numeric" data-income-actual data-period="'+p.id+'" value="'+p.incomeActual+'"'+dis+'>'
+    + (pd!=null ? '<div class="small-note">по формуле: оклад gross '+fmt(pd.gross)+' − НДФЛ '+fmt(pd.tax)+' ≈ на руки '+fmt(pd.net)+'. Указывайте здесь зарплату «на руки» без отпускных — они учитываются отдельно.</div>' : '<div class="small-note">не рассчитывается (исторический период)</div>') + '</div>'
+    + '<div><label>Всего доход периода (с отпускными и доп. доходом)</label><div class="num" style="padding:6px 0;font-weight:700;">'+fmt(r.totalIncome)+'</div></div>'
+    + '</div>'
+    + '<hr class="sep">'
+    + '<div class="row between"><b style="font-size:13px;">Дополнительный доход (разово)</b><button class="small ghost" data-add-extra-income="'+p.id+'"'+dis+'>+ доход</button></div>'
+    + (extraHtml ? '<div class="tag-input-grid" style="grid-template-columns:1fr 90px 70px auto;font-size:11px;color:var(--muted);margin-bottom:4px;"><span>Комментарий</span><span>Сумма</span><span>% на расходы</span><span></span></div>' + extraHtml
+        : '<div class="small-note">Разовый доход сверх обычной зарплаты — например премия или подарок. Сумма прибавляется к доходу периода; указанный процент от неё уходит на расходы, остальное распределяется по копилкам как обычный свободный остаток. Проценты подставляются по текущему соотношению расходы/доход периода и корректируются вручную.</div>')
+    + '<hr class="sep">'
+    + '<div class="row between"><b style="font-size:13px;">Расходы по категориям (переопределение периода)</b><span class="num muted">'+fmt(r.expenses)+'</span></div>'
+    + '<table>'+catRows+'</table>'
+    + '<hr class="sep">'
+    + '<div class="row between"><b style="font-size:13px;">Распределение по копилкам</b><button class="small ghost" data-clear-alloc-override="'+p.id+'"'+dis+'>'+(hasOverride?'Сбросить на авто-расчёт':'')+'</button></div>'
+    + '<table><tr><th>Цель</th><th class="num">Отложено</th><th class="num">Баланс копилки</th></tr>'+allocRows+'</table>'
+    + (r.unallocated>0.5 ? '<div class="small-note">Нераспределённый остаток: '+fmt(r.unallocated)+'</div>' : '')
+    + '</div>';
+  return '<div class="period-card'+(open?' open':'')+'" data-period-card="'+p.id+'">'+head+body+'</div>';
+}
+
+/* ---------- categories ---------- */
+function renderCategories(sim){
+  var total = categoriesTemplateTotal(state);
+  var oklad = state.oklad.history.length ? state.oklad.history[state.oklad.history.length-1].amount : 0;
+  var okladNet = estimateMonthlyNet(oklad, state.ndfl.brackets);
+  var cards = state.categories.map(function(c,idx){
+    var planned = categoryPlannedTotal(c);
+    var pct = okladNet>0 ? (planned*2/okladNet*100).toFixed(1)+'%' : '—';
+    var itemsHtml = (c.items||[]).map(function(it,ii){
+      var seasonRow = it.season ? '<div class="row wrap" style="gap:6px;margin:-2px 0 6px;padding-left:2px;">'
+          + '<span class="pill ok" style="font-size:9px;">сезон</span>'
+          + '<input type="text" style="width:58px;" placeholder="01.10" data-item-season-from data-cat="'+c.id+'" data-idx="'+ii+'" value="'+formatDM(it.season.from)+'">'
+          + '<span class="muted">–</span>'
+          + '<input type="text" style="width:58px;" placeholder="31.03" data-item-season-to data-cat="'+c.id+'" data-idx="'+ii+'" value="'+formatDM(it.season.to)+'">'
+          + '<button class="ghost small" data-item-season-clear data-cat="'+c.id+'" data-idx="'+ii+'">✕ сезон</button>'
+          + '</div>' : '';
+      return '<div class="item-row" style="grid-template-columns:1fr 110px auto auto;">'
+        + '<input type="text" data-item-name data-cat="'+c.id+'" data-idx="'+ii+'" value="'+esc(it.name)+'">'
+        + '<input type="text" inputmode="numeric" class="num" data-item-amount data-cat="'+c.id+'" data-idx="'+ii+'" value="'+it.amount+'">'
+        + (it.season ? '<span></span>' : '<button class="ghost small" data-item-season-add data-cat="'+c.id+'" data-idx="'+ii+'" title="сделать сезонной">📅</button>')
+        + '<button class="ghost small" data-del-item data-cat="'+c.id+'" data-idx="'+ii+'">✕</button>'
+        + '</div>' + seasonRow;
+    }).join('');
+    var catSeasonRow = c.season ? '<div class="row wrap" style="gap:6px;margin:6px 0;">'
+        + '<span class="pill ok" style="font-size:10px;">сезонная категория</span>'
+        + '<input type="text" style="width:64px;" placeholder="01.12" data-cat-season-from data-cat="'+c.id+'" value="'+formatDM(c.season.from)+'">'
+        + '<span class="muted">–</span>'
+        + '<input type="text" style="width:64px;" placeholder="20.03" data-cat-season-to data-cat="'+c.id+'" value="'+formatDM(c.season.to)+'">'
+        + '<button class="ghost small" data-cat-season-clear="'+c.id+'">✕ сезон</button>'
+        + '</div>' : '<button class="small ghost" data-cat-season-add="'+c.id+'" style="margin:6px 0;">+ сделать сезонной</button>';
+    return '<div class="cat-card">'
+      + '<div class="row between">'
+      + '<input type="text" style="font-weight:700;font-size:14px;border:none;background:transparent;padding:2px 0;" data-cat-name data-cat="'+c.id+'" value="'+esc(c.name)+'">'
+      + '<div class="priority-controls row">'
+      + '<button class="ghost small" data-cat-up="'+c.id+'" '+(idx===0?'disabled':'')+'>↑</button>'
+      + '<button class="ghost small" data-cat-down="'+c.id+'" '+(idx===state.categories.length-1?'disabled':'')+'>↓</button>'
+      + '<button class="ghost small" data-cat-del="'+c.id+'">✕</button>'
+      + '</div></div>'
+      + catSeasonRow
+      + (c.items && c.items.length ? itemsHtml + '<button class="small ghost" data-add-item="'+c.id+'">+ статья</button>'
+          : '<div style="margin-top:6px;"><label>Сумма за период</label><input type="text" inputmode="numeric" class="num" data-cat-amount data-cat="'+c.id+'" value="'+c.amount+'"><button class="small ghost" data-add-item="'+c.id+'" style="margin-top:6px;">+ разбить на статьи</button></div>')
+      + '<div class="row between muted" style="font-size:12px;margin-top:8px;"><span>Итого за период'+(c.season?' (в сезон)':'')+'</span><span class="num">'+fmt(planned)+' ('+pct+' от дохода на руки ×2)</span></div>'
+      + '</div>';
+  }).join('');
+  return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Категории расходов (шаблон на каждый период выплаты)</h2>'
+    + '<button class="small" data-add-cat>+ категория</button></div>'
+    + '<div class="info-box" style="margin-bottom:12px;">Эти суммы применяются как план к каждому периоду выплаты (2 раза в месяц). Итого по шаблону: <b>'+fmt(total)+'</b> за период, <b>'+fmt(total*2)+'</b> в месяц. Фактические расходы конкретного периода можно скорректировать на вкладке «Доходы». Категорию целиком или отдельную статью можно сделать <b>сезонной</b> — тогда сумма учитывается только в периоды внутри указанного диапазона дат (ДД.ММ–ДД.ММ, можно через рубеж года, например 01.12–20.03); вне сезона она в этот период не расходуется.</div>'
+    + '<div class="grid cols-2">' + cards + '</div></div>';
+}
+
+/* ---------- goals ---------- */
+function renderGoals(sim){
+  var sorted = state.goals.slice().sort(function(a,b){return a.priority-b.priority;});
+  var cards = sorted.map(function(g,idx){
+    var hasSub = g.subgoals && g.subgoals.length;
+    var finalTarget = goalFinalTarget(g);
+    var saved = goalCumulativeProgress(g, sim);
+    var potBalance = sim.finalGoalSaved[g.id]||0;
+    var pctRaw = finalTarget>0 ? Math.round(saved/finalTarget*100) : 0;
+    var pct = Math.max(0, Math.min(100, pctRaw));
+    var achievements = milestoneAchievements(g, sim);
+    var wdHtml = (g.withdrawals||[]).map(function(w,wi){
+      return '<div class="item-row">'
+        + '<input type="date" data-wd-date data-goal="'+g.id+'" data-idx="'+wi+'" value="'+w.date+'">'
+        + '<input type="text" inputmode="numeric" class="num" data-wd-amount data-goal="'+g.id+'" data-idx="'+wi+'" value="'+w.amount+'">'
+        + '<button class="ghost small" data-wd-del data-goal="'+g.id+'" data-idx="'+wi+'">✕</button>'
+        + '</div>';
+    }).join('');
+    var milestonesBlock;
+    if(hasSub){
+      var subRows = g.subgoals.map(function(sg,si){
+        var pill = milestoneStatusPill(sg, achievements[si]?achievements[si].achievedDate:null);
+        return '<div class="item-row" style="grid-template-columns:1.3fr 1fr 1fr auto;align-items:center;">'
+          + '<input type="text" data-sub-name data-goal="'+g.id+'" data-idx="'+si+'" value="'+esc(sg.name)+'">'
+          + '<input type="text" inputmode="numeric" class="num" data-sub-target data-goal="'+g.id+'" data-idx="'+si+'" value="'+sg.target+'">'
+          + '<input type="date" data-sub-deadline data-goal="'+g.id+'" data-idx="'+si+'" value="'+(sg.deadline||'')+'">'
+          + '<button class="ghost small" data-sub-del data-goal="'+g.id+'" data-idx="'+si+'">✕</button>'
+          + '</div>'
+          + '<div style="margin:-4px 0 8px;"><span class="pill '+pill.cls+'" style="font-size:10px;">'+pill.label+'</span></div>';
+      }).join('');
+      milestonesBlock = '<div class="small-note" style="margin-bottom:6px;">Подцели копилки (без срока — оставьте дату пустой, тогда покажем прогноз).</div>'
+        + subRows
+        + '<div class="row" style="gap:8px;margin-top:4px;"><button class="small ghost" data-sub-add="'+g.id+'">+ подцель</button><button class="small ghost" data-sub-clear="'+g.id+'">Убрать подцели</button></div>';
+    } else {
+      var deadlineNote;
+      if(g.deadline){
+        var soloPill1 = milestoneStatusPill(goalMilestones(g)[0], achievements[0].achievedDate);
+        deadlineNote = '<div class="small-note" style="margin-top:2px;"><span class="pill '+soloPill1.cls+'" style="font-size:10px;">'+soloPill1.label+'</span></div>';
+      } else {
+        deadlineNote = '<div class="small-note">'+(achievements[0].achievedDate ? (achievements[0].achievedDate==='pre' ? 'Цель уже накоплена (покрыта начальным остатком)' : 'Прогноз: цель будет накоплена к <b>'+ruDate(achievements[0].achievedDate)+'</b>') : 'При текущем плане цель не будет достигнута в пределах '+esc(planYearsLabel(state))+' года')+'</div>';
+      }
+      milestonesBlock = '<div class="grid cols-3" style="margin-top:10px;">'
+        + '<div><label>Цель, ₽</label><input type="text" inputmode="numeric" class="num" data-goal-target data-goal="'+g.id+'" value="'+g.target+'"></div>'
+        + '<div><label>Срок (можно оставить пустым)</label><input type="date" data-goal-deadline data-goal="'+g.id+'" value="'+(g.deadline||'')+'"></div>'
+        + '<div><label>Начальный остаток</label><input type="text" inputmode="numeric" class="num" data-goal-start data-goal="'+g.id+'" value="'+g.startingBalance+'"></div>'
+        + '</div>' + deadlineNote
+        + '<button class="small ghost" data-sub-add="'+g.id+'" style="margin-top:8px;">+ разбить на подцели (этапы)</button>';
+    }
+    return '<div class="goal-card">'
+      + '<div class="goal-top">'
+      + '<input type="text" style="font-weight:700;font-size:15px;border:none;background:transparent;flex:1;min-width:120px;" data-goal-name data-goal="'+g.id+'" value="'+esc(g.name)+'">'
+      + '<div class="priority-controls row">'
+      + '<span class="pill">приоритет '+g.priority+'</span>'
+      + '<button class="ghost small" data-goal-up="'+g.id+'" '+(idx===0?'disabled':'')+'>↑</button>'
+      + '<button class="ghost small" data-goal-down="'+g.id+'" '+(idx===sorted.length-1?'disabled':'')+'>↓</button>'
+      + '<button class="ghost small" data-goal-del="'+g.id+'">✕</button>'
+      + '</div></div>'
+      + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:8px 0;"><i style="width:'+pct+'%"></i></div>'
+      + '<div class="row between muted num" style="font-size:12px;">'+fmt(saved)+' / '+fmt(finalTarget)+' ('+pct+'%)</div>'
+      + (potBalance!==saved ? '<div class="muted" style="font-size:11px;">на счету сейчас: '+fmt(potBalance)+'</div>' : '')
+      + '<hr class="sep">'
+      + milestonesBlock
+      + '<label class="row" style="margin-top:10px;align-items:center;gap:6px;"><input type="checkbox" style="width:auto;" data-goal-completed data-goal="'+g.id+'" '+(g.completed?'checked':'')+'> <span class="muted" style="font-size:12px;">цель выполнена / закрыта</span></label>'
+      + (hasSub ? '<div class="small-note">Начальный остаток: <input type="text" inputmode="numeric" class="num" style="display:inline-block;width:120px;" data-goal-start data-goal="'+g.id+'" value="'+g.startingBalance+'"></div>' : '')
+      + '<hr class="sep">'
+      + '<div class="row between"><b style="font-size:12px;">Траты из этой копилки</b><button class="small ghost" data-wd-add="'+g.id+'">+ трата</button></div>'
+      + wdHtml
+      + '</div>';
+  }).join('');
+  return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Цели накоплений</h2><button class="small" data-add-goal>+ цель</button></div>'
+    + '<div class="info-box" style="margin-bottom:12px;">Свободный остаток каждого периода распределяется автоматически по <b>срочности</b>, а не жёстко по приоритету: сначала деньги получает та цель (или текущий этап), которой нужно откладывать больше в расчёте на период, чтобы успеть к своему сроку — даже если её приоритет ниже. Так цель с более ранним сроком не срывается только из-за того, что выше в списке стоит другая цель, у которой запас времени ещё большой. При этом цель с высоким приоритетом не страдает: как только у неё самой срок начинает поджимать, её собственная потребность в деньгах на период растёт и она снова получает деньги в первую очередь. Приоритет решает только при равной срочности (например, между целями без срока) — их пополнение идёт по приоритету, стрелками. Как только цель (или текущий этап) набирает свою сумму, пополнение прекращается и излишек идёт следующей по срочности цели. Можно переопределить вручную в карточке периода. Цель можно разбить на подцели (этапы) — например «к 1 апреля накопить 150 000, потратить, затем к 31 июля накопить ещё 315 000» — каждая со своим сроком или без него. <b>Общая цель на карточке = сумма всех этапов</b> (150 000 + 315 000 = 465 000): это сколько всего денег пройдёт через копилку за год, а не остаток на счету в моменте — фактический остаток («на счету сейчас») показан отдельной строкой, если он отличается.</div>'
+    + cards + '</div>';
+}
+
+/* ---------- settings ---------- */
+function renderSettings(sim){
+  var okladHtml = state.oklad.history.map(function(h,idx){
+    var estNet = estimateMonthlyNet(h.amount, state.ndfl.brackets);
+    return '<div class="item-row">'
+      + '<input type="date" data-oklad-date data-idx="'+idx+'" value="'+h.effectiveFrom+'">'
+      + '<input type="text" inputmode="numeric" class="num" data-oklad-amount data-idx="'+idx+'" value="'+h.amount+'">'
+      + '<button class="ghost small" data-oklad-del data-idx="'+idx+'" '+(state.oklad.history.length<2?'disabled':'')+'>✕</button>'
+      + '</div>'
+      + '<div class="small-note" style="margin:-4px 0 10px;">≈ на руки: <b class="num">'+fmt(estNet)+'</b>/мес (НДФЛ ≈ '+fmt(h.amount-estNet)+'/мес), если этот оклад действует весь год</div>';
+  }).join('');
+  var ndflHtml = state.ndfl.brackets.map(function(b,bi){
+    return '<div class="item-row" style="grid-template-columns:1fr 90px auto;">'
+      + '<input type="text" inputmode="numeric" class="num" placeholder="без верхней границы" data-ndfl-upto data-idx="'+bi+'" value="'+(b.upTo==null?'':b.upTo)+'">'
+      + '<input type="text" inputmode="numeric" class="num" data-ndfl-rate data-idx="'+bi+'" value="'+Math.round(b.rate*100)+'">'
+      + '<button class="ghost small" data-ndfl-del data-idx="'+bi+'" '+(state.ndfl.brackets.length<2?'disabled':'')+'>✕</button>'
+      + '</div>';
+  }).join('');
+  var incomeHtml = '<div class="tag-input-grid">' + state.income2026.map(function(v,idx){
+    return '<div class="field"><label>'+MONTH_NAMES[idx+1]+' 2026</label><input type="text" inputmode="numeric" class="num" data-income26 data-idx="'+idx+'" value="'+v+'"></div>';
+  }).join('') + '</div>';
+  var vacHtml = state.vacations.map(function(v){
+    var formula = calcVacationPayFormula(v, state);
+    var avg = v.start ? avgDailyEarnings(v.start, state) : 0;
+    return '<div class="cat-card" style="margin-bottom:8px;">'
+      + '<div class="row between"><input type="text" style="font-weight:600;border:none;background:transparent;" data-vac-note data-id="'+v.id+'" value="'+esc(v.note||'')+'"><button class="ghost small" data-vac-del="'+v.id+'">✕</button></div>'
+      + '<div class="grid cols-3" style="margin-top:6px;">'
+      + '<div><label>Начало</label><input type="date" data-vac-start data-id="'+v.id+'" value="'+(v.start||'')+'"></div>'
+      + '<div><label>Конец</label><input type="date" data-vac-end data-id="'+v.id+'" value="'+(v.end||'')+'"></div>'
+      + '<div><label>Отпускные (к выплате)</label><input type="text" inputmode="numeric" class="num" data-vac-pay data-id="'+v.id+'" value="'+v.manualPay+'"></div>'
+      + '</div>'
+      + '<div class="small-note">Средний дневной заработок за 12 мес: <b class="num">'+fmt(avg)+'</b>. Формула (дней × средний): <b class="num">'+(formula==null?'—':fmt(formula))+'</b>. '
+      + '<button class="small ghost" data-vac-apply-formula="'+v.id+'" style="margin-left:6px;">Подставить по формуле</button></div>'
+      + '</div>';
+  }).join('');
+  var sickHtml = state.sickLeaves.map(function(s){
+    return '<div class="item-row" style="grid-template-columns:1fr 1fr 1fr auto;">'
+      + '<input type="date" data-sick-start data-id="'+s.id+'" value="'+(s.start||'')+'">'
+      + '<input type="date" data-sick-end data-id="'+s.id+'" value="'+(s.end||'')+'">'
+      + '<input type="text" placeholder="комментарий" data-sick-note data-id="'+s.id+'" value="'+esc(s.note||'')+'">'
+      + '<button class="ghost small" data-sick-del="'+s.id+'">✕</button>'
+      + '</div>';
+  }).join('');
+  var holidaysHtml = state.meta.holidays.slice().sort().map(function(h){
+    return '<span class="pill" style="margin:2px;">'+ruDate(h)+' <button class="ghost small" style="padding:0 0 0 4px;" data-holiday-del="'+h+'">✕</button></span>';
+  }).join('');
+  var years = planYears(state);
+  var wdHtml = years.map(function(y){
+    var wd = [];
+    for(var m=1;m<=12;m++){ wd.push({m:m, total: workingDaysInMonth(y,m,state), first: workingDaysInHalf(y,m,'first',state), second: workingDaysInHalf(y,m,'second',state)}); }
+    var openWd = !!ui.openWdYears[y];
+    return '<div class="period-card'+(openWd?' open':'')+'" style="margin-bottom:6px;">'
+      + '<div class="period-head" data-toggle-wd-year="'+y+'" style="padding:8px 12px;"><span class="chev">▸</span><b style="font-size:13px;">'+y+'</b></div>'
+      + '<div class="period-body" style="padding:8px 12px 12px;">'
+      + '<table class="wd-table"><tr><th>Месяц</th><th class="num">1-я пол.</th><th class="num">2-я пол.</th><th class="num">Всего</th></tr>'
+      + wd.map(function(r){ return '<tr><td>'+MONTH_NAMES[r.m]+'</td><td class="num">'+r.first+'</td><td class="num">'+r.second+'</td><td class="num">'+r.total+'</td></tr>'; }).join('')
+      + '</table></div></div>';
+  }).join('');
+  var maxYear = years.length ? years[years.length-1] : 2027;
+  var yearsListHtml = years.map(function(y){
+    var cnt = state.periods.filter(function(p){ return p.monthRef.y===y; }).length;
+    return '<span class="pill" style="margin:2px;">'+y+' <span class="muted" style="font-size:10px;">('+cnt+' пер.)</span> <button class="ghost small" style="padding:0 0 0 4px;" data-del-year="'+y+'"'+(years.length<=1?' disabled title="Нельзя удалить единственный год"':' title="Удалить год из плана"')+'>✕</button></span>';
+  }).join('');
+
+  return ''
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Годы планирования</h2><button class="small" data-add-year>+ добавить '+(maxYear+1)+' год</button></div>'
+    + '<div style="margin-bottom:8px;">' + yearsListHtml + '</div>'
+    + '<div class="info-box">При добавлении нового года создаются периоды выплат (аванс/зарплата дважды в месяц) на основе текущего оклада; праздники для нового года календарь пока не знает (используются только выходные) — добавьте их вручную в производственном календаре ниже, когда они станут известны. Уже прошедшие периоды фиксируются автоматически по сегодняшней дате и не пересчитываются при изменении настроек — см. кнопку «🔒 Зафиксировать» на вкладке «Доходы». Крестик рядом с годом выше удаляет все его периоды из плана (с подтверждением, если они уже есть).</div>'
+    + '</div>'
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Оклад</h2><button class="small" data-add-oklad>+ повышение</button></div>'
+    + '<div class="small-note" style="margin-bottom:6px;">Указывайте оклад <b>до вычета НДФЛ (gross)</b> — сколько действует «с даты» и до следующей записи. Аванс/зарплата считаются пропорционально отработанным рабочим дням от этого оклада; сумму «на руки» инструмент считает сам по таблице НДФЛ ниже.</div>'
+    + okladHtml + '</div>'
+
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Налог (НДФЛ)</h2><button class="small" data-add-ndfl>+ порог</button></div>'
+    + '<div class="info-box" style="margin-bottom:10px;">С 2025 года в РФ действует прогрессивная шкала НДФЛ (актуально и на 2026 год) — повышенная ставка применяется только к части дохода сверх порога, как ступени лестницы, а не ко всей сумме сразу. Ставки со временем могут измениться — при необходимости скорректируйте таблицу.</div>'
+    + '<div class="tag-input-grid" style="grid-template-columns:1fr 90px auto;font-size:11px;color:var(--muted);margin-bottom:4px;"><span>Доход в год до, ₽</span><span>Ставка, %</span><span></span></div>'
+    + ndflHtml + '</div>'
+
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Доходы за 2026 год</h2></div>'
+    + '<div class="info-box" style="margin-bottom:8px;">Нужны для расчёта среднего дневного заработка при отпусках в начале '+esc(planYearsLabel(state))+' года (используется скользящее окно 12 месяцев до отпуска — часть месяцев из 2026 года, часть из уже прошедших периодов). <b>Что именно вписывать:</b> одна сумма на весь месяц (не на выплату) — сложите аванс и зарплату за этот месяц вместе; сумма должна быть «на руки» (после вычета налога), точно как в поле «Доход на руки» у периодов; отпускные, если в этом месяце был отпуск, в эту сумму включать <b>не нужно</b> — отпускные не участвуют в расчёте среднего заработка по закону, только обычная зарплата.</div>'
+    + incomeHtml + '</div>'
+
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Отпуска</h2><button class="small" data-add-vac>+ отпуск</button></div>' + vacHtml + '</div>'
+
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Больничные</h2><button class="small" data-add-sick>+ больничный</button></div>'
+    + '<div class="small-note" style="margin-bottom:8px;">Дни больничного в расчётном месяце уменьшают коэффициент 29.3 пропорционально — это снижает средний заработок за такой месяц при расчёте отпускных.</div>'
+    + sickHtml + '</div>'
+
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Производственный календарь</h2></div>'
+    + '<div class="info-box" style="margin-bottom:10px;">Официальный производственный календарь на 2027 год ещё не опубликован Правительством РФ. Ниже — оценка на основе стандартных праздничных дат (без переноса выходных). Когда календарь опубликуют, скорректируйте список праздников. Список ниже общий на все года плана; при добавлении нового года праздники для него подберите отдельно.</div>'
+    + '<div style="margin-bottom:10px;">' + holidaysHtml + '</div>'
+    + '<div class="row" style="gap:6px;max-width:260px;"><input type="date" id="new-holiday-date"><button class="small" data-add-holiday>Добавить</button></div>'
+    + '<hr class="sep">' + wdHtml + '</div>'
+
+    + '<div class="card info-box">'
+    + '<b>О расчётах в этом инструменте</b><br><br>'
+    + '• <b>Аванс/зарплата</b>: оклад (gross) делится пропорционально числу рабочих дней в 1-й (1–15) и 2-й (16 – конец месяца) половинах месяца по календарю выше.<br>'
+    + '• <b>НДФЛ и «на руки»</b>: налог считается нарастающим итогом с начала года по прогрессивной шкале выше — чем больше уже заработано в этом году, тем выше ставка на следующий рубль. Значение «по формуле» в периодах — это оценка от gross-оклада; расчёт учитывает только оклад (без отпускных, которые обычно занимают малую часть года до более высоких порогов).<br>'
+    + '• <b>Отпускные</b>: средний дневной заработок = сумма дохода за 12 месяцев до отпуска ÷ сумма коэффициентов (29.3 на полностью отработанный месяц, пропорционально меньше — если в месяце были больничные); отпускные = средний дневной заработок × число календарных дней отпуска. При повышении оклада внутри 12-месячного окна более ранние месяцы индексируются пропорционально. Доход, который вы вписываете по периодам и за 2026 год, должен быть <b>без отпускных</b> — они прибавляются к доходу периода автоматически из вкладки «Отпуска» и не должны попадать в поле «Доход на руки» повторно.<br>'
+    + '• <b>Сезонные категории</b>: категорию или отдельную статью можно ограничить датами (например 01.12–20.03) — тогда сумма учитывается только в периоды внутри этого диапазона, в остальное время не расходуется.<br>'
+    + '• <b>Накопления и подцели</b>: цель можно разбить на подцели (этапы), каждый со своей суммой и (опционально) сроком; общая цель = сумма всех этапов, а прогресс копится нарастающим итогом — уже пройденный этап засчитан навсегда, даже если деньги потом потратили. На каждый период считается «сколько нужно отложить, чтобы успеть к сроку текущего этапа» = (сумма этапа − уже отложено в его рамках) ÷ (периодов до срока) — это и есть срочность копилки на данный момент. Свободный остаток распределяется не жёстко по приоритету, а по срочности: первой получает деньги та копилка, которой в пересчёте на период нужно больше, даже если её приоритет ниже — так цель с ближним сроком не сдвигается ради цели с большим запасом времени. Приоритет остаётся решающим только когда срочность одинаковая (например, у целей без срока). Как только копилка (или её текущий этап) набирает нужную сумму, пополнение останавливается и излишек уходит следующей по срочности цели. Цель без срока получает то, что осталось после срочных целей, а прогресс показывается как прогнозируемая дата достижения при текущем плане.<br>'
+    + '• <b>Фиксация периодов</b>: периоды с датой в прошлом фиксируются автоматически и хранятся как факт — изменения настроек их больше не пересчитывают. Период можно зафиксировать и вручную кнопкой «🔒» в его карточке; зафиксированный период остаётся редактируемым, просто перестаёт двигаться от авто-расчёта, пока его не разблокировать.'
+    + '</div>';
+}
+
+/* ============ event handling ============ */
+function attachEvents(sim){
+  root.querySelectorAll('[data-tab]').forEach(function(btn){
+    btn.addEventListener('click', function(){ ui.tab = btn.getAttribute('data-tab'); render(); });
+  });
+  root.querySelectorAll('[data-select-year]').forEach(function(btn){
+    btn.addEventListener('click', function(){ ui.selectedYear = parseInt(btn.getAttribute('data-select-year'),10); render(); });
+  });
+  root.querySelectorAll('[data-toggle-period]').forEach(function(el){
+    el.addEventListener('click', function(){
+      var id = el.getAttribute('data-toggle-period');
+      ui.openPeriods[id] = !ui.openPeriods[id];
+      render();
+    });
+  });
+
+  /* periods */
+  bindChange('[data-income-actual]', function(el){
+    var p = findPeriod(el.dataset.period); if(p) p.incomeActual = parseNum(el.value);
+  });
+  bindChange('[data-period-date]', function(el){
+    var p = findPeriod(el.dataset.period);
+    if(p && el.value){
+      p.date = el.value;
+      var parts = el.value.split('-');
+      p.label = parts[2]+'.'+parts[1];
+    }
+  });
+  root.querySelectorAll('[data-add-extra-income]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(btn.disabled) return;
+      var pid = btn.getAttribute('data-add-extra-income');
+      var p = findPeriod(pid);
+      if(p){
+        var freshSim = simulate(state);
+        var row = freshSim.rows.find(function(r){ return r.period.id===pid; });
+        var pct = (row && row.totalIncome>0) ? Math.round(row.expenses/row.totalIncome*100) : 50;
+        pct = Math.max(0, Math.min(100, pct));
+        if(!p.extraIncomes) p.extraIncomes=[];
+        p.extraIncomes.push({id:uid('extra'), amount:0, note:'', expensesPct:pct});
+        scheduleSave();
+      }
+    });
+  });
+  root.querySelectorAll('[data-extra-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var p = findPeriod(b.dataset.period); if(p){ p.extraIncomes.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
+  }); });
+  bindChange('[data-extra-note]', function(el){ var p=findPeriod(el.dataset.period); if(p) p.extraIncomes[parseInt(el.dataset.idx,10)].note=el.value; });
+  bindChange('[data-extra-amount]', function(el){ var p=findPeriod(el.dataset.period); if(p) p.extraIncomes[parseInt(el.dataset.idx,10)].amount=parseNum(el.value); });
+  bindChange('[data-extra-pct]', function(el){ var p=findPeriod(el.dataset.period); if(p) p.extraIncomes[parseInt(el.dataset.idx,10)].expensesPct=Math.max(0,Math.min(100,parseNum(el.value))); });
+  bindChange('[data-cat-override]', function(el){
+    var pid = el.dataset.period, cid = el.dataset.cat;
+    var p = findPeriod(pid);
+    var planned = categoryPlannedTotalForDate(state.categories.find(function(c){return c.id===cid;}), p?p.date:null);
+    var val = parseNum(el.value);
+    if(!state.categoryOverrides[pid]) state.categoryOverrides[pid]={};
+    if(val===planned) delete state.categoryOverrides[pid][cid]; else state.categoryOverrides[pid][cid]=val;
+    if(Object.keys(state.categoryOverrides[pid]).length===0) delete state.categoryOverrides[pid];
+  });
+  bindChange('[data-alloc-override]', function(el){
+    var pid = el.dataset.period, gid = el.dataset.goal;
+    if(!state.savingsOverrides[pid]) state.savingsOverrides[pid]={};
+    state.savingsOverrides[pid][gid] = parseNum(el.value);
+  });
+  root.querySelectorAll('[data-clear-alloc-override]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      if(btn.disabled) return;
+      var pid = btn.getAttribute('data-clear-alloc-override');
+      delete state.savingsOverrides[pid];
+      scheduleSave();
+    });
+  });
+  root.querySelectorAll('[data-lock-period]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var pid = btn.getAttribute('data-lock-period');
+      var p = findPeriod(pid);
+      if(p){
+        var freshSim = simulate(state);
+        var row = freshSim.rows.find(function(r){ return r.period.id===pid; });
+        if(row){
+          if(!state.savingsOverrides[pid]) state.savingsOverrides[pid]={};
+          Object.keys(row.allocations).forEach(function(gid){ state.savingsOverrides[pid][gid]=Math.round(row.allocations[gid]); });
+        }
+        p.locked = true;
+        scheduleSave();
+      }
+    });
+  });
+  root.querySelectorAll('[data-unlock-period]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var pid = btn.getAttribute('data-unlock-period');
+      var p = findPeriod(pid);
+      if(p){ p.locked = false; scheduleSave(); }
+    });
+  });
+
+  /* categories */
+  root.querySelectorAll('[data-add-cat]').forEach(function(b){ b.addEventListener('click', function(){
+    state.categories.push({id:uid('cat'), name:'Новая категория', amount:0, items:[]}); scheduleSave();
+  }); });
+  root.querySelectorAll('[data-cat-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var id = b.getAttribute('data-cat-del'); state.categories = state.categories.filter(function(c){return c.id!==id;}); scheduleSave();
+  }); });
+  root.querySelectorAll('[data-cat-up]').forEach(function(b){ b.addEventListener('click', function(){ moveArrayItem(state.categories, b.getAttribute('data-cat-up'), -1); scheduleSave(); }); });
+  root.querySelectorAll('[data-cat-down]').forEach(function(b){ b.addEventListener('click', function(){ moveArrayItem(state.categories, b.getAttribute('data-cat-down'), 1); scheduleSave(); }); });
+  root.querySelectorAll('[data-add-item]').forEach(function(b){ b.addEventListener('click', function(){
+    var cat = state.categories.find(function(c){return c.id===b.getAttribute('data-add-item');});
+    if(cat){ if(!cat.items) cat.items=[]; cat.items.push({name:'Статья', amount:0}); scheduleSave(); }
+  }); });
+  root.querySelectorAll('[data-del-item]').forEach(function(b){ b.addEventListener('click', function(){
+    var cat = state.categories.find(function(c){return c.id===b.dataset.cat;});
+    if(cat){ cat.items.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
+  }); });
+  bindChange('[data-cat-name]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c) c.name=el.value; });
+  bindChange('[data-cat-amount]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c) c.amount=parseNum(el.value); });
+  bindChange('[data-item-name]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c) c.items[parseInt(el.dataset.idx,10)].name=el.value; });
+  bindChange('[data-item-amount]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c) c.items[parseInt(el.dataset.idx,10)].amount=parseNum(el.value); });
+
+  /* categories: seasonality */
+  root.querySelectorAll('[data-cat-season-add]').forEach(function(b){ b.addEventListener('click', function(){
+    var c = state.categories.find(function(c){return c.id===b.getAttribute('data-cat-season-add');});
+    if(c){ c.season = {from:'12-01', to:'03-20'}; scheduleSave(); }
+  }); });
+  root.querySelectorAll('[data-cat-season-clear]').forEach(function(b){ b.addEventListener('click', function(){
+    var c = state.categories.find(function(c){return c.id===b.getAttribute('data-cat-season-clear');});
+    if(c){ delete c.season; scheduleSave(); }
+  }); });
+  bindChange('[data-cat-season-from]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c && c.season){ var v=parseDM(el.value); if(v) c.season.from=v; } });
+  bindChange('[data-cat-season-to]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c && c.season){ var v=parseDM(el.value); if(v) c.season.to=v; } });
+  root.querySelectorAll('[data-item-season-add]').forEach(function(b){ b.addEventListener('click', function(){
+    var c = state.categories.find(function(c){return c.id===b.dataset.cat;});
+    var it = c && c.items[parseInt(b.dataset.idx,10)];
+    if(it){ it.season = {from:'10-01', to:'03-31'}; scheduleSave(); }
+  }); });
+  root.querySelectorAll('[data-item-season-clear]').forEach(function(b){ b.addEventListener('click', function(){
+    var c = state.categories.find(function(c){return c.id===b.dataset.cat;});
+    var it = c && c.items[parseInt(b.dataset.idx,10)];
+    if(it){ delete it.season; scheduleSave(); }
+  }); });
+  bindChange('[data-item-season-from]', function(el){
+    var c=state.categories.find(function(c){return c.id===el.dataset.cat;});
+    var it = c && c.items[parseInt(el.dataset.idx,10)];
+    if(it && it.season){ var v=parseDM(el.value); if(v) it.season.from=v; }
+  });
+  bindChange('[data-item-season-to]', function(el){
+    var c=state.categories.find(function(c){return c.id===el.dataset.cat;});
+    var it = c && c.items[parseInt(el.dataset.idx,10)];
+    if(it && it.season){ var v=parseDM(el.value); if(v) it.season.to=v; }
+  });
+
+  /* goals */
+  root.querySelectorAll('[data-add-goal]').forEach(function(b){ b.addEventListener('click', function(){
+    var maxP = state.goals.reduce(function(m,g){return Math.max(m,g.priority);},0);
+    state.goals.push({id:uid('goal'), name:'Новая цель', priority:maxP+1, target:0, deadline:'2027-12-31', startingBalance:0, completed:false, subgoals:[], withdrawals:[]});
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-goal-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var id = b.getAttribute('data-goal-del'); state.goals = state.goals.filter(function(g){return g.id!==id;}); scheduleSave();
+  }); });
+  root.querySelectorAll('[data-goal-up]').forEach(function(b){ b.addEventListener('click', function(){ swapPriority(b.getAttribute('data-goal-up'), -1); scheduleSave(); }); });
+  root.querySelectorAll('[data-goal-down]').forEach(function(b){ b.addEventListener('click', function(){ swapPriority(b.getAttribute('data-goal-down'), 1); scheduleSave(); }); });
+  bindChange('[data-goal-name]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.name=el.value; });
+  bindChange('[data-goal-target]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.target=parseNum(el.value); });
+  bindChange('[data-goal-deadline]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.deadline=el.value; });
+  bindChange('[data-goal-start]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.startingBalance=parseNum(el.value); });
+  bindChange('[data-goal-completed]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.completed=el.checked; });
+  root.querySelectorAll('[data-wd-add]').forEach(function(b){ b.addEventListener('click', function(){
+    var g=findGoal(b.getAttribute('data-wd-add')); if(g){ g.withdrawals.push({date:'2027-01-05',amount:0,note:''}); scheduleSave(); }
+  }); });
+  root.querySelectorAll('[data-wd-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var g=findGoal(b.dataset.goal); if(g){ g.withdrawals.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
+  }); });
+  bindChange('[data-wd-date]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.withdrawals[parseInt(el.dataset.idx,10)].date=el.value; });
+  bindChange('[data-wd-amount]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.withdrawals[parseInt(el.dataset.idx,10)].amount=parseNum(el.value); });
+
+  /* goal subgoals (milestones) */
+  root.querySelectorAll('[data-sub-add]').forEach(function(b){ b.addEventListener('click', function(){
+    var g = findGoal(b.getAttribute('data-sub-add'));
+    if(g){
+      if(!g.subgoals || !g.subgoals.length){
+        g.subgoals = [
+          { id:uid('sub'), name:'Этап 1', target: g.target||0, deadline: g.deadline||'' },
+          { id:uid('sub'), name:'Этап 2', target: g.target||0, deadline:'' }
+        ];
+      } else {
+        g.subgoals.push({ id:uid('sub'), name:'Новый этап', target:0, deadline:'' });
+      }
+      scheduleSave();
+    }
+  }); });
+  root.querySelectorAll('[data-sub-clear]').forEach(function(b){ b.addEventListener('click', function(){
+    var g = findGoal(b.getAttribute('data-sub-clear'));
+    if(g && g.subgoals && g.subgoals.length){
+      var last = g.subgoals[g.subgoals.length-1];
+      g.target = last.target; g.deadline = last.deadline||'';
+      g.subgoals = [];
+      scheduleSave();
+    }
+  }); });
+  root.querySelectorAll('[data-sub-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var g = findGoal(b.dataset.goal); if(g){ g.subgoals.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
+  }); });
+  bindChange('[data-sub-name]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.subgoals[parseInt(el.dataset.idx,10)].name=el.value; });
+  bindChange('[data-sub-target]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.subgoals[parseInt(el.dataset.idx,10)].target=parseNum(el.value); });
+  bindChange('[data-sub-deadline]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.subgoals[parseInt(el.dataset.idx,10)].deadline=el.value; });
+
+  /* settings: multi-year */
+  root.querySelectorAll('[data-add-year]').forEach(function(b){ b.addEventListener('click', function(){
+    var years = planYears(state);
+    var newYear = (years.length ? years[years.length-1] : 2026) + 1;
+    var gen = generateYearPeriods(newYear, state);
+    state.periods = state.periods.concat(gen);
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-del-year]').forEach(function(b){ b.addEventListener('click', function(){
+    if(b.disabled) return;
+    var y = parseInt(b.getAttribute('data-del-year'),10);
+    var toRemove = state.periods.filter(function(p){ return p.monthRef.y===y; });
+    if(toRemove.length){
+      var ok = confirm('Удалить '+y+' год из плана?\n\nБудет удалено периодов: '+toRemove.length+'. Все их данные — фактические суммы, распределение по копилкам, доп. доходы, зафиксированные периоды — удалятся безвозвратно.');
+      if(!ok) return;
+    }
+    state.periods = state.periods.filter(function(p){ return p.monthRef.y!==y; });
+    toRemove.forEach(function(p){
+      delete state.savingsOverrides[p.id];
+      delete state.categoryOverrides[p.id];
+      delete ui.openPeriods[p.id];
+    });
+    delete ui.openWdYears[y];
+    if(ui.selectedYear===y) ui.selectedYear=null;
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-toggle-wd-year]').forEach(function(el){
+    el.addEventListener('click', function(){
+      var y = el.getAttribute('data-toggle-wd-year');
+      ui.openWdYears[y] = !ui.openWdYears[y];
+      render();
+    });
+  });
+
+  /* settings: oklad */
+  root.querySelectorAll('[data-add-oklad]').forEach(function(b){ b.addEventListener('click', function(){
+    state.oklad.history.push({effectiveFrom:'2027-06-01', amount: state.oklad.history[state.oklad.history.length-1].amount}); scheduleSave();
+  }); });
+  root.querySelectorAll('[data-oklad-del]').forEach(function(b){ b.addEventListener('click', function(){
+    state.oklad.history.splice(parseInt(b.dataset.idx,10),1); scheduleSave();
+  }); });
+  bindChange('[data-oklad-date]', function(el){ state.oklad.history[parseInt(el.dataset.idx,10)].effectiveFrom = el.value; });
+  bindChange('[data-oklad-amount]', function(el){ state.oklad.history[parseInt(el.dataset.idx,10)].amount = parseNum(el.value); });
+  bindChange('[data-income26]', function(el){ state.income2026[parseInt(el.dataset.idx,10)] = parseNum(el.value); });
+
+  /* settings: ndfl brackets */
+  root.querySelectorAll('[data-add-ndfl]').forEach(function(b){ b.addEventListener('click', function(){
+    var brackets = state.ndfl.brackets;
+    brackets.splice(Math.max(0,brackets.length-1), 0, {upTo:1000000, rate:0.13});
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-ndfl-del]').forEach(function(b){ b.addEventListener('click', function(){
+    state.ndfl.brackets.splice(parseInt(b.dataset.idx,10),1); scheduleSave();
+  }); });
+  bindChange('[data-ndfl-upto]', function(el){
+    var idx = parseInt(el.dataset.idx,10), v = el.value.trim();
+    state.ndfl.brackets[idx].upTo = v==='' ? null : parseNum(v);
+    state.ndfl.brackets.sort(function(a,b){ return ndflBracketTop(a)-ndflBracketTop(b); });
+  });
+  bindChange('[data-ndfl-rate]', function(el){
+    var idx = parseInt(el.dataset.idx,10);
+    state.ndfl.brackets[idx].rate = Math.max(0, parseNum(el.value))/100;
+  });
+
+  /* vacations */
+  root.querySelectorAll('[data-add-vac]').forEach(function(b){ b.addEventListener('click', function(){
+    state.vacations.push({id:uid('vac'), start:'2027-06-01', end:'2027-06-07', note:'Отпуск', manualPay:0}); scheduleSave();
+  }); });
+  root.querySelectorAll('[data-vac-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var id=b.getAttribute('data-vac-del'); state.vacations = state.vacations.filter(function(v){return v.id!==id;});
+    state.periods.forEach(function(p){ p.assignedVacations = (p.assignedVacations||[]).filter(function(a){return a.id!==id;}); });
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-vac-apply-formula]').forEach(function(b){ b.addEventListener('click', function(){
+    var v = state.vacations.find(function(v){return v.id===b.getAttribute('data-vac-apply-formula');});
+    if(v){ var f = calcVacationPayFormula(v, state); if(f!=null) v.manualPay = f; scheduleSave(); }
+  }); });
+  bindChange('[data-vac-note]', function(el){ var v=findVac(el.dataset.id); if(v) v.note=el.value; });
+  bindChange('[data-vac-start]', function(el){ var v=findVac(el.dataset.id); if(v) v.start=el.value; });
+  bindChange('[data-vac-end]', function(el){ var v=findVac(el.dataset.id); if(v) v.end=el.value; });
+  bindChange('[data-vac-pay]', function(el){ var v=findVac(el.dataset.id); if(v) v.manualPay=parseNum(el.value); });
+
+  /* sick leaves */
+  root.querySelectorAll('[data-add-sick]').forEach(function(b){ b.addEventListener('click', function(){
+    state.sickLeaves.push({id:uid('sick'), start:'', end:'', note:''}); scheduleSave();
+  }); });
+  root.querySelectorAll('[data-sick-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var id=b.getAttribute('data-sick-del'); state.sickLeaves = state.sickLeaves.filter(function(s){return s.id!==id;}); scheduleSave();
+  }); });
+  bindChange('[data-sick-start]', function(el){ var s=state.sickLeaves.find(function(s){return s.id===el.dataset.id;}); if(s) s.start=el.value; });
+  bindChange('[data-sick-end]', function(el){ var s=state.sickLeaves.find(function(s){return s.id===el.dataset.id;}); if(s) s.end=el.value; });
+  bindChange('[data-sick-note]', function(el){ var s=state.sickLeaves.find(function(s){return s.id===el.dataset.id;}); if(s) s.note=el.value; });
+
+  /* holidays */
+  root.querySelectorAll('[data-add-holiday]').forEach(function(b){ b.addEventListener('click', function(){
+    var inp = document.getElementById('new-holiday-date');
+    if(inp && inp.value && state.meta.holidays.indexOf(inp.value)===-1){ state.meta.holidays.push(inp.value); scheduleSave(); }
+  }); });
+  root.querySelectorAll('[data-holiday-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var d = b.getAttribute('data-holiday-del'); state.meta.holidays = state.meta.holidays.filter(function(h){return h!==d;}); scheduleSave();
+  }); });
+
+  function bindChange(sel, fn){
+    root.querySelectorAll(sel).forEach(function(el){
+      var isDiscrete = (el.type==='checkbox'||el.type==='radio'||el.tagName==='SELECT');
+      if(isDiscrete){
+        el.addEventListener('change', function(){ fn(el); scheduleSave(); });
+      } else {
+        /* commit synchronously on blur (not on every keystroke/pause, and not deferred via
+           setTimeout — a deferred commit could lose a race with a synchronous click handler
+           that triggers its own render() first, which redraws the DOM from stale state and
+           makes the just-typed edit appear to "reset" back to its previous value). */
+        el.addEventListener('blur', function(){ fn(el); scheduleSave(); });
+        el.addEventListener('keydown', function(ev){ if(ev.key==='Enter'){ el.blur(); } });
+      }
+    });
+  }
+}
+function findPeriod(id){ return state.periods.find(function(p){return p.id===id;}); }
+function findGoal(id){ return state.goals.find(function(g){return g.id===id;}); }
+function findVac(id){ return state.vacations.find(function(v){return v.id===id;}); }
+function moveArrayItem(arr, id, dir){
+  var idx = arr.findIndex(function(x){return x.id===id;});
+  var newIdx = idx+dir;
+  if(newIdx<0||newIdx>=arr.length) return;
+  var tmp = arr[idx]; arr[idx]=arr[newIdx]; arr[newIdx]=tmp;
+}
+function swapPriority(id, dir){
+  var sorted = state.goals.slice().sort(function(a,b){return a.priority-b.priority;});
+  var idx = sorted.findIndex(function(g){return g.id===id;});
+  var newIdx = idx+dir;
+  if(newIdx<0||newIdx>=sorted.length) return;
+  var a = sorted[idx], b = sorted[newIdx];
+  var tmp = a.priority; a.priority=b.priority; b.priority=tmp;
+}
+
+/* ============ boot ============ */
+function boot(){
+  root = document.getElementById('root');
+  render();
+  if(window.claude && window.claude.use){
+    window.claude.use('artifact').then(function(api){ artifactApi = api; }).catch(function(){});
+  }
+}
+if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', boot); } else { boot(); }
+})();
+</script>
+</body></html>
