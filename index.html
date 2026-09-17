@@ -93,7 +93,7 @@ main{max-width:1160px;margin:0 auto;padding:32px 24px 56px;display:flex;flex-dir
 .card.stat{padding:24px 26px;min-height:120px;justify-content:center;}
 .stat .v{font-family:var(--font-mono);font-size:26px;font-weight:800;line-height:1.2;letter-spacing:-.01em;}
 .stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;}
-.grid.cols-4 > .card.stat:first-child{background:var(--accent);border-color:var(--accent);box-shadow:var(--shadow-accent);}
+.grid.cols-4 > .card.stat:first-child{background:var(--surface);box-shadow:var(--shadow-card);}
 .grid.cols-4 > .card.stat:first-child .v{color:var(--on-accent);}
 .grid.cols-4 > .card.stat:first-child .l{color:var(--on-accent);opacity:.85;}
 
@@ -183,6 +183,12 @@ input:disabled,select:disabled{background:var(--surface-3);color:var(--muted);cu
 @media (max-width:560px){.debt-stats{grid-template-columns:1fr 1fr;}}
 .debt-stats .v{font-family:var(--font-mono);font-size:19px;font-weight:800;}
 .debt-stats .l{font-size:12px;color:var(--muted);}
+.dash-tile{background:var(--line);border-color:transparent;}
+.dash-tile.dash-tab{cursor:pointer;}
+.dash-tile.dash-tab:hover{border-color:var(--accent);}
+.dash-tile.active{background:var(--accent);border-color:var(--accent);color:var(--on-accent);box-shadow:var(--shadow-accent);}
+.dash-tile.active .v{color:var(--on-accent);}
+.dash-tile.active .l{color:var(--on-accent-muted);}
 .table-scroll{overflow-x:auto;}
 ::selection{background:var(--accent-soft);}
 #login-screen{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-card);padding:32px!important;font-family:var(--font-body)!important;}
@@ -254,7 +260,7 @@ var HOLIDAYS_2027 = ['2027-01-01','2027-01-02','2027-01-03','2027-01-04','2027-0
 var MONTH_NAMES = ['','Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 
 var DEFAULT_STATE = {
-  ui: { tab:'dashboard', openPeriods:{}, catPercent:false, selectedYear:null, openWdYears:{}, openSettings:{} },
+  ui: { tab:'dashboard', dashView:'goals', openPeriods:{}, catPercent:false, selectedYear:null, openWdYears:{}, openSettings:{} },
   oklad: { history: [ { effectiveFrom:'2027-01-01', amount:230000 } ] },
   ndfl: { brackets: [
     { upTo:2400000, rate:0.13 },
@@ -375,6 +381,7 @@ async function loadStateFromDB(){
   if(s.ui.selectedYear===undefined) s.ui.selectedYear = null;
   if(!s.ui.openWdYears) s.ui.openWdYears = {};
   if(!s.ui.openSettings) s.ui.openSettings = {};
+  if(!s.ui.dashView) s.ui.dashView = 'goals';
   if(!s.ndfl) s.ndfl = clone(DEFAULT_STATE.ndfl);
   (s.goals||[]).forEach(function(g){ if(!g.subgoals) g.subgoals=[]; });
   (s.periods||[]).forEach(function(p){ if(p.locked===undefined) p.locked=false; });
@@ -654,6 +661,7 @@ function periodWorkInfo(period, st, ranges){
   var holidaySet = new Set(st.meta.holidays);
   var monthWD = workingDaysInMonth(y,m,st);
   if(monthWD<=0) return null;
+  if(!(okladForDate(isoDate(y,m,period.half==='first'?1:16), st) > 0)) return null;
   ranges = ranges || absenceRanges(st);
   var dim = daysInMonth(y,m);
   var start = period.half==='first'?1:16, end = period.half==='first'?15:dim;
@@ -729,7 +737,9 @@ function computeSalaryNetPlan(st, fillIds){
   periods.forEach(function(p){
     var payYear = p.date.slice(0,4);
     if(payYear!==cumYear){ cum = 0; cumYear = payYear; }
-    var w = isManualPeriod(p) ? null : periodWorkInfo(p, st, ranges);
+    /* расчёт по формуле делаем и для ручных периодов — как подсказку, если данных хватает
+       (есть оклад и рабочие дни в месяце); в «Доход на руки» он сам не записывается */
+    var w = periodWorkInfo(p, st, ranges);
     var r = null;
     if(w){
       r = netFromGross(w.gross, cum, br);
@@ -1530,9 +1540,9 @@ function renderDashboard(sim){
   var tabsNav = yearTabsNav(state);
   var cards = (activeYear!=null ? '<h2 style="font-size:15px;margin:0 0 2px;">'+activeYear+' год</h2>' : '')
     + '<div class="grid cols-4">'
-    + statCard('Доход за год', fmt(totalIncome))
-    + statCard('Расходы за год', fmt(totalExpenses))
-    + statCard('Отложено в цели', fmt(totalAllocated))
+    + statCard('Доход за год', fmt(totalIncome), 'income')
+    + statCard('Расходы за год', fmt(totalExpenses), 'expenses')
+    + statCard('Отложено в цели', fmt(totalAllocated), 'goals')
     + statCard('Свободный остаток', fmt(totalUnallocated))
     + '</div>';
   var shortfallBox = shortfalls ? '<div class="info-box" style="border:1px solid var(--danger);color:var(--danger);background:var(--danger-soft);"><b>'+shortfalls+' период(а/ов)</b> с дефицитом — расходы превышают доход. Загляните на вкладку «Периоды».</div>' : '';
@@ -1574,21 +1584,180 @@ function renderDashboard(sim){
           + '</div>';
       }).join('')
     + '</div></div>';
-  var vacForYear = activeYear==null ? state.vacations : state.vacations.filter(function(v){ return v.start && parseInt(v.start.slice(0,4),10)===activeYear; });
-  var vacHtml = '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Отпуска и отпускные</h2></div>'
-    + vacForYear.map(function(v){
-        var formula = calcVacationPayFormula(v, state);
-        var days = v.start&&v.end ? calendarDaysInclusive(v.start,v.end) : 0;
-        return '<div class="row between" style="padding:8px 0;border-bottom:1px solid var(--line);flex-wrap:wrap;">'
-          + '<div><b>'+esc(v.note||'Отпуск')+'</b><div class="muted" style="font-size:12px;">'+ruDate(v.start)+' — '+ruDate(v.end)+' ('+days+' дн.)</div></div>'
-          + '<div style="text-align:right;"><div class="num">'+fmt(v.manualPay)+' <span class="muted">вручную</span></div>'
-          + '<div class="num muted" style="font-size:12px;">формула: '+(formula==null?'—':fmt(formula))+'</div></div>'
-          + '</div>';
-      }).join('') + (!vacForYear.length ? '<div class="muted" style="font-size:12px;padding:8px 0;">Нет отпусков в '+activeYear+' году</div>' : '') + '</div>';
-  return tabsNav + cards + shortfallBox + goalsHtml + vacHtml;
+  var view = ui.dashView==='income' ? renderDashIncome(activeYear)
+    : ui.dashView==='expenses' ? renderDashExpenses(sim, activeYear)
+    : goalsHtml;
+  return tabsNav + cards + shortfallBox + view;
 }
-function statCard(label,val){
-  return '<div class="card stat"><div class="v">'+val+'</div><div class="l">'+esc(label)+'</div></div>';
+
+/* ---------- обзор → «Доход за год»: по календарным месяцам выплат ---------- */
+/* Налог считается нарастающим итогом с начала года, поэтому в одном месяце может быть
+   сразу две ставки: часть дохода добирает прежний порог, часть уходит в следующий. */
+function taxSlices(cumBefore, gross, brackets){
+  var sorted = brackets.slice().sort(function(a,b){ return ndflBracketTop(a)-ndflBracketTop(b); });
+  var out = [], prev = 0, from = cumBefore, to = cumBefore + gross;
+  sorted.forEach(function(b){
+    var top = ndflBracketTop(b);
+    var sStart = Math.max(from, prev), sEnd = Math.min(to, top);
+    if(sEnd > sStart) out.push({ rate:b.rate, base:sEnd-sStart, tax:Math.round((sEnd-sStart)*b.rate) });
+    prev = top;
+  });
+  return out;
+}
+/* Месяц — тот, за который начислено: строка месяца = его аванс + его зарплата.
+   НДФЛ при этом считается по порядку дат выплат и нарастающим итогом за календарный год. */
+function annualIncomeByMonth(st, year){
+  var periods = st.periods.slice().sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); });
+  var br = st.ndfl.brackets, cum = 0, cumYear = null, months = {};
+  periods.forEach(function(p){
+    var payYear = p.date.slice(0,4);
+    if(payYear!==cumYear){ cum = 0; cumYear = payYear; }
+    var vac = vacationPayForPeriod(p, st);
+    var net = (p.incomeActual||0) + vac;
+    var gross = net>0 ? Math.round(grossFromNet(net, cum, br)) : 0;
+    var slices = gross>0 ? taxSlices(cum, gross, br) : [];
+    var tax = slices.reduce(function(sum,x){ return sum+x.tax; },0);
+    cum += gross;
+    if(p.monthRef.y!==year) return;
+    var m = p.monthRef.m;
+    var e = months[m] || (months[m] = { m:m, gross:0, net:0, tax:0, vac:0, avans:0, zp:0, rates:{}, payouts:[] });
+    e.gross += gross; e.net += net; e.tax += tax; e.vac += vac;
+    if(p.half==='first') e.avans += net; else e.zp += net;
+    slices.forEach(function(x){ e.rates[x.rate] = (e.rates[x.rate]||0) + x.tax; });
+    e.payouts.push({ date:p.date, type:p.type, net:(p.incomeActual||0), vac:vac });
+  });
+  return Object.keys(months).map(function(k){ return months[k]; }).sort(function(a,b){ return a.m-b.m; });
+}
+function renderDashIncome(year){
+  if(year==null) return '';
+  var rows = annualIncomeByMonth(state, year);
+  var tot = { gross:0, net:0, tax:0, vac:0, rates:{} };
+  rows.forEach(function(r){
+    tot.gross+=r.gross; tot.net+=r.net; tot.tax+=r.tax; tot.vac+=r.vac;
+    Object.keys(r.rates).forEach(function(k){ tot.rates[k] = (tot.rates[k]||0)+r.rates[k]; });
+  });
+  function rateCell(rates){
+    var keys = Object.keys(rates).sort(function(a,b){ return a-b; });
+    if(!keys.length) return '—';
+    return keys.map(function(k){ return Math.round(k*100)+'%'; }).join(' + ');
+  }
+  function rateNote(rates){
+    var keys = Object.keys(rates).sort(function(a,b){ return a-b; });
+    if(keys.length<2) return '';
+    return '<div class="small-note" style="margin:0;">'+keys.map(function(k){ return Math.round(k*100)+'% — '+fmt(rates[k]); }).join(' · ')+'</div>';
+  }
+  var totAvans = 0, totZp = 0;
+  rows.forEach(function(r){ totAvans += r.avans; totZp += r.zp; });
+  var body = rows.map(function(r){
+    var payouts = r.payouts.map(function(x){
+      return (x.type==='avans'?'аванс':'зарплата')+' '+ruDate(x.date).slice(0,5)+' · '+fmt(x.net)+(x.vac?' + отпускные '+fmt(x.vac):'');
+    }).join('; ');
+    return '<tr><td>'+MONTH_NAMES[r.m]
+      + '<div class="small-note" style="margin:0;">'+esc(payouts)+'</div></td>'
+      + '<td class="num">'+fmt(r.avans)+'</td>'
+      + '<td class="num">'+fmt(r.zp)+'</td>'
+      + '<td class="num">'+fmt(r.gross)+'</td>'
+      + '<td class="num">'+rateCell(r.rates)+rateNote(r.rates)+'</td>'
+      + '<td class="num">'+fmt(r.tax)+'</td>'
+      + '<td class="num"><b>'+fmt(r.net)+'</b></td></tr>';
+  }).join('');
+  return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Доход по месяцам '+year+'</h2></div>'
+    + '<div class="info-box" style="margin-bottom:12px;">Месяц — тот, за который начислено: в строке месяца стоят его аванс и его зарплата, даже если зарплата пришла 5-го числа следующего месяца. В суммы включены отпускные. «Начислено» — сумма до вычета НДФЛ: она восстанавливается из «на руки» по шкале налога, потому что налог считается нарастающим итогом за календарный год выплат. Если в месяце сработали две ставки, показаны обе и налог по каждой.</div>'
+    + (rows.length
+        ? '<div class="table-scroll"><table><tr><th>Месяц</th><th class="num">Аванс</th><th class="num">Зарплата</th><th class="num">Начислено (gross)</th><th class="num">Ставка НДФЛ</th><th class="num">НДФЛ</th><th class="num">На руки</th></tr>'
+          + body
+          + '<tr><td><b>Итого за год</b>'+(tot.vac?'<div class="small-note" style="margin:0;">в том числе отпускные '+fmt(tot.vac)+'</div>':'')+'</td>'
+          + '<td class="num"><b>'+fmt(totAvans)+'</b></td>'
+          + '<td class="num"><b>'+fmt(totZp)+'</b></td>'
+          + '<td class="num"><b>'+fmt(tot.gross)+'</b></td>'
+          + '<td class="num">'+rateCell(tot.rates)+rateNote(tot.rates)+'</td>'
+          + '<td class="num"><b>'+fmt(tot.tax)+'</b></td>'
+          + '<td class="num"><b>'+fmt(tot.net)+'</b></td></tr>'
+          + '</table></div>'
+        : '<div class="muted" style="font-size:13px;">В '+year+' году выплат нет.</div>')
+    + '</div>';
+}
+
+/* ---------- обзор → «Расходы за год» ---------- */
+function annualExpenses(st, sim, year){
+  var rows = sim.rows.filter(function(r){ return r.period.monthRef.y===year; });
+  var byPeriod = {};
+  rows.forEach(function(r){ byPeriod[r.period.id] = r; });
+  var cats = st.categories.map(function(c){ return { name:c.name, amount:0 }; });
+  rows.forEach(function(r){
+    var ov = st.categoryOverrides[r.period.id];
+    st.categories.forEach(function(c,i){
+      var planned = categoryPlannedTotalForDate(c, r.period.date);
+      cats[i].amount += (ov && ov[c.id]!==undefined) ? ov[c.id] : planned;
+    });
+  });
+  /* рассрочки — по покупкам, но только те платежи, которые платятся из выплат этого года */
+  var instTotal = 0;
+  debtsOf(st).installments.forEach(function(inst){
+    (inst.payments||[]).forEach(function(pay){
+      if(!pay.date || !(pay.amount>0)) return;
+      var row = payoutRowForDate(pay.date, sim);
+      if(row && byPeriod[row.period.id]) instTotal += pay.amount;
+    });
+  });
+  var cardTotal = 0;
+  rows.forEach(function(r){ cardTotal += sumValues(r.debtPayments); });
+  cardTotal = Math.round(cardTotal);
+  var goalSpends = [];
+  st.goals.forEach(function(g){
+    var sum = 0;
+    (g.withdrawals||[]).forEach(function(wd){
+      if(wd.date && (wd.amount||0)>0 && wd.date.slice(0,4)===String(year)) sum += wd.amount;
+    });
+    if(sum>0) goalSpends.push({ name:g.name, amount:sum });
+  });
+  return { cats:cats, instTotal:instTotal, cardTotal:cardTotal, goalSpends:goalSpends };
+}
+function renderDashExpenses(sim, year){
+  if(year==null) return '';
+  var data = annualExpenses(state, sim, year);
+  var catTotal = data.cats.reduce(function(s,x){ return s+x.amount; },0);
+  var instTotal = data.instTotal, cardTotal = data.cardTotal;
+  var goalTotal = data.goalSpends.reduce(function(s,x){ return s+x.amount; },0);
+  var grand = catTotal + instTotal + cardTotal + goalTotal;
+  /* проценты — доля в общих расходах за год, строки идут от большей доли к меньшей */
+  function pctCell(amount){
+    var pct = grand>0 ? amount/grand*100 : 0;
+    return '<td class="num muted" style="width:64px;">'+(pct>0 && pct<1 ? '<1' : Math.round(pct))+'%</td>';
+  }
+  function listBlock(title, items, total, note){
+    if(!items.length) return '<h3 style="font-size:14px;margin:14px 0 6px;">'+title+'</h3><div class="small-note">Нет расходов.</div>';
+    return '<h3 style="font-size:14px;margin:14px 0 6px;">'+title+'</h3>'
+      + (note ? '<div class="small-note" style="margin:0 0 4px;">'+note+'</div>' : '')
+      + '<table>'
+      + items.slice().sort(function(a,b){ return b.amount-a.amount; }).map(function(x){
+          return '<tr><td>'+esc(x.name)+'</td>'+pctCell(x.amount)+'<td class="num">'+fmt(x.amount)+'</td></tr>';
+        }).join('')
+      + '<tr><td><b>Итого</b></td>'+pctCell(total)+'<td class="num"><b>'+fmt(total)+'</b></td></tr>'
+      + '</table>';
+  }
+  return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Расходы за '+year+' год</h2></div>'
+    + '<div class="info-box" style="margin-bottom:6px;">В плитке «Расходы за год» учтены категории и платежи по рассрочке — они списываются из выплаты до копилок. Погашение кредиток и траты из копилок показаны отдельно: это деньги, которые уже были отложены или взяты в долг.</div>'
+    + listBlock('Категории', data.cats, catTotal)
+    + '<h3 style="font-size:14px;margin:14px 0 6px;">Долги</h3>'
+    + (instTotal>0 || cardTotal>0
+        ? '<table>'
+          + '<tr><td>Рассрочка</td>'+pctCell(instTotal)+'<td class="num">'+fmt(instTotal)+'</td></tr>'
+          + '<tr><td>Кредитка</td>'+pctCell(cardTotal)+'<td class="num">'+fmt(cardTotal)+'</td></tr>'
+          + '<tr><td><b>Итого</b></td>'+pctCell(instTotal+cardTotal)+'<td class="num"><b>'+fmt(instTotal+cardTotal)+'</b></td></tr>'
+          + '</table>'
+        : '<div class="small-note">Платежей по рассрочкам и кредиткам в этом году нет.</div>')
+    + listBlock('Траты из копилок', data.goalSpends, goalTotal, 'Деньги, которые вы взяли из целей: переводы между копилками здесь не считаются.')
+    + '<hr class="sep">'
+    + '<div class="row between"><b>Всего расходов и трат за год</b><span class="num" style="font-size:18px;font-weight:700;">'+fmt(grand)+'</span></div>'
+    + '<div class="small-note">Проценты в таблицах — доля в этой сумме.</div>'
+    + '</div>';
+}
+function statCard(label,val,key){
+  if(!key) return '<div class="card stat dash-tile"><div class="v">'+val+'</div><div class="l">'+esc(label)+'</div></div>';
+  var active = ui.dashView===key;
+  return '<div class="card stat dash-tile dash-tab'+(active?' active':'')+'" data-dash-tab="'+key+'" role="button" tabindex="0">'
+    + '<div class="v">'+val+'</div><div class="l">'+esc(label)+'</div></div>';
 }
 
 /* ---------- periods ---------- */
@@ -1804,8 +1973,8 @@ function renderPeriodCard(r, st, plan, isPastCard, periodSim){
     + (pd!=null
         ? '<div class="small-note">по формуле: отработано '+pd.worked+' из '+pd.halfWD+' раб. дн. (в месяце '+pd.monthWD+') · gross '+fmt(pd.gross)+' − НДФЛ '+fmt(pd.tax)+' ≈ на руки <b class="num">'+fmt(pd.net)+'</b>'
           + (!p.locked && Math.abs(pd.net-(p.incomeActual||0))>1 ? ' <button class="small ghost" data-income-apply-formula="'+p.id+'">Подставить</button>' : '')
-          + '. Указывайте здесь зарплату «на руки» без отпускных — они учитываются отдельно.</div>'
-        : '<div class="small-note">вводится вручную, по окладу не рассчитывается</div>') + '</div>'
+          + '. '+(isManualPeriod(p) ? 'Это оценка по окладу, в ручной период сумма не подставляется сама. ' : '')+'Указывайте здесь зарплату «на руки» без отпускных — они учитываются отдельно.</div>'
+        : '<div class="small-note">нет данных для расчёта по формуле — укажите оклад в настройках</div>') + '</div>'
     + '<div><label>Всего доход периода (с отпускными)</label><div class="num" style="padding:6px 0;font-weight:700;">'+fmt(r.totalIncome)+'</div></div>'
     + '</div>'
     + '<hr class="sep">'
@@ -2412,6 +2581,9 @@ function renderSettings(sim){
 function attachEvents(sim){
   root.querySelectorAll('[data-tab]').forEach(function(btn){
     btn.addEventListener('click', function(){ ui.tab = btn.getAttribute('data-tab'); render(); });
+  });
+  root.querySelectorAll('[data-dash-tab]').forEach(function(el){
+    el.addEventListener('click', function(){ ui.dashView = el.getAttribute('data-dash-tab'); render(); });
   });
   root.querySelectorAll('[data-select-year]').forEach(function(btn){
     btn.addEventListener('click', function(){ ui.selectedYear = parseInt(btn.getAttribute('data-select-year'),10); render(); });
