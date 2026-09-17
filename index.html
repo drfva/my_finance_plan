@@ -7,6 +7,7 @@
   --bg:#EFEADF; --surface:#FFFDF8; --surface-2:#F5F1E8; --surface-3:#ECE6D9; --ink:#0E1F3F; --muted:#5B6679;
   --line:#E3DCCD; --accent:#1E4FA8; --accent-ink:#1A4290; --accent-soft:#DEE7F7; --on-accent:#FFFFFF; --on-accent-muted:#C9D8F5;
   --warn:#8A5210; --warn-soft:#F6E7CE; --danger:#A83434; --danger-soft:#F8E0DE;
+  --good:#2E6B45; --good-soft:#E3F1E7;
   --backdrop:rgba(14,31,63,.40);
   --shadow-card:0 1px 2px rgba(14,31,63,.04), 0 10px 30px rgba(14,31,63,.07);
   --shadow-pop:0 24px 60px rgba(14,31,63,.20);
@@ -22,6 +23,7 @@
     --bg:#08111F; --surface:#0F1C33; --surface-2:#162644; --surface-3:#1C2F52; --ink:#EEE8DC; --muted:#97A3BA;
     --line:#1F3155; --accent:#7FA6F0; --accent-ink:#C4D6FA; --accent-soft:#1A2F57; --on-accent:#08111F; --on-accent-muted:#1B3466;
     --warn:#E8B366; --warn-soft:#3A2C14; --danger:#F08A84; --danger-soft:#3F1F28;
+    --good:#8FD7A8; --good-soft:#16301F;
     --backdrop:rgba(3,8,20,.66);
     --shadow-card:0 1px 0 rgba(255,255,255,.03) inset, 0 12px 32px rgba(0,0,0,.35);
     --shadow-pop:0 24px 60px rgba(0,0,0,.55);
@@ -33,6 +35,7 @@
   --bg:#08111F; --surface:#0F1C33; --surface-2:#162644; --surface-3:#1C2F52; --ink:#EEE8DC; --muted:#97A3BA;
   --line:#1F3155; --accent:#7FA6F0; --accent-ink:#C4D6FA; --accent-soft:#1A2F57; --on-accent:#08111F; --on-accent-muted:#1B3466;
   --warn:#E8B366; --warn-soft:#3A2C14; --danger:#F08A84; --danger-soft:#3F1F28;
+  --good:#8FD7A8; --good-soft:#16301F;
   --backdrop:rgba(3,8,20,.66);
   --shadow-card:0 1px 0 rgba(255,255,255,.03) inset, 0 12px 32px rgba(0,0,0,.35);
   --shadow-pop:0 24px 60px rgba(0,0,0,.55);
@@ -88,14 +91,11 @@ main{max-width:1160px;margin:0 auto;padding:32px 24px 56px;display:flex;flex-dir
 .grid.cols-4{grid-template-columns:repeat(4,minmax(0,1fr));}
 @media (max-width:720px){.grid.cols-2,.grid.cols-3,.grid.cols-4{grid-template-columns:1fr;}main{padding:20px 16px 40px;gap:20px;}.card{padding:20px;border-radius:20px;}.topbar{padding:16px 16px 12px;}}
 
-/* ключевые цифры: первая плитка — акцентная */
+/* ключевые цифры */
 .stat{display:flex;flex-direction:column;gap:6px;}
 .card.stat{padding:24px 26px;min-height:120px;justify-content:center;}
 .stat .v{font-family:var(--font-mono);font-size:26px;font-weight:800;line-height:1.2;letter-spacing:-.01em;}
 .stat .l{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:700;}
-.grid.cols-4 > .card.stat:first-child{background:var(--surface);box-shadow:var(--shadow-card);}
-.grid.cols-4 > .card.stat:first-child .v{color:var(--on-accent);}
-.grid.cols-4 > .card.stat:first-child .l{color:var(--on-accent);opacity:.85;}
 
 /* вложенные плитки внутри карточек — мягкая заливка без рамки */
 .grid > .stat[style*="border"]{background:var(--surface-2)!important;border:none!important;padding:20px 22px!important;border-radius:var(--r-md)!important;gap:8px;}
@@ -190,6 +190,17 @@ input:disabled,select:disabled{background:var(--surface-3);color:var(--muted);cu
 .dash-tile.active .v{color:var(--on-accent);}
 .dash-tile.active .l{color:var(--on-accent-muted);}
 .table-scroll{overflow-x:auto;}
+/* факт против плана: меньше плана — мягкий зелёный, ±5% — обычный фон, больше плана — мягкий красный */
+.fact-under td{background:var(--good-soft);}
+.fact-under td.diff{color:var(--good);font-weight:700;}
+.fact-over td{background:var(--danger-soft);}
+.fact-over td.diff{color:var(--danger);font-weight:700;}
+.fact-even td{background:var(--surface);}
+.fact-item td:first-child{padding-left:22px;}
+.month-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.month-tabs button{padding:7px 13px;}
+.month-tabs button.active{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700;}
+.fact-input{max-width:130px;padding:7px 10px;min-height:0;text-align:right;}
 ::selection{background:var(--accent-soft);}
 #login-screen{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-card);padding:32px!important;font-family:var(--font-body)!important;}
 #login-error{color:var(--danger)!important;}
@@ -260,7 +271,7 @@ var HOLIDAYS_2027 = ['2027-01-01','2027-01-02','2027-01-03','2027-01-04','2027-0
 var MONTH_NAMES = ['','Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 
 var DEFAULT_STATE = {
-  ui: { tab:'dashboard', dashView:'goals', openPeriods:{}, catPercent:false, selectedYear:null, openWdYears:{}, openSettings:{} },
+  ui: { tab:'dashboard', dashView:'goals', factMonth:null, openPeriods:{}, catPercent:false, selectedYear:null, openWdYears:{}, openSettings:{} },
   oklad: { history: [ { effectiveFrom:'2027-01-01', amount:230000 } ] },
   ndfl: { brackets: [
     { upTo:2400000, rate:0.13 },
@@ -338,7 +349,7 @@ var publishTimer = null;
 var saveStatus = 'idle';
 /* кредитки и рассрочки хранятся в отдельных таблицах (debts.sql) через get/save_debts_state */
 var debtsStorageOk = false;
-function emptyDebts(){ return { cards:[], installments:[], paymentOverrides:{}, workingDays:{} }; }
+function emptyDebts(){ return { cards:[], installments:[], paymentOverrides:{}, workingDays:{}, actuals:{} }; }
 function normalizeDebts(d){
   d = (d && typeof d==='object') ? d : {};
   var out = emptyDebts();
@@ -356,6 +367,23 @@ function normalizeDebts(d){
   Object.keys(po).forEach(function(pid){
     out.paymentOverrides[pid] = {};
     Object.keys(po[pid]||{}).forEach(function(cid){ out.paymentOverrides[pid][cid] = Number(po[pid][cid])||0; });
+  });
+  var ac = d.actuals||{};
+  Object.keys(ac).forEach(function(ym){
+    var cats = ac[ym]||{}, outMonth = {};
+    Object.keys(cats).forEach(function(cid){
+      var src = cats[cid]||{}, dst = {};
+      if(src.name) dst.name = String(src.name);
+      if(src.total!=null && src.total!=='') dst.total = Number(src.total)||0;
+      var items = src.items||{}, outItems = {};
+      Object.keys(items).forEach(function(nm){
+        var v = Number(items[nm])||0;
+        if(nm && v) outItems[nm] = v;
+      });
+      if(Object.keys(outItems).length) dst.items = outItems;
+      if(dst.total || dst.items) outMonth[cid] = dst; 
+    });
+    if(Object.keys(outMonth).length) out.actuals[ym] = outMonth;
   });
   var wd = d.workingDays||{};
   Object.keys(wd).forEach(function(ym){
@@ -382,6 +410,7 @@ async function loadStateFromDB(){
   if(!s.ui.openWdYears) s.ui.openWdYears = {};
   if(!s.ui.openSettings) s.ui.openSettings = {};
   if(!s.ui.dashView) s.ui.dashView = 'goals';
+  if(s.ui.factMonth===undefined) s.ui.factMonth = null;
   if(!s.ndfl) s.ndfl = clone(DEFAULT_STATE.ndfl);
   (s.goals||[]).forEach(function(g){ if(!g.subgoals) g.subgoals=[]; });
   (s.periods||[]).forEach(function(p){ if(p.locked===undefined) p.locked=false; });
@@ -1495,6 +1524,7 @@ function render(){
   if(ui.tab==='dashboard') body = renderDashboard(sim);
   else if(ui.tab==='periods') body = renderPeriods(sim);
   else if(ui.tab==='categories') body = renderCategories(sim);
+  else if(ui.tab==='facts') body = renderFacts(sim);
   else if(ui.tab==='goals') body = renderGoals(sim);
   else if(ui.tab==='credits') body = renderCredits(sim);
   else if(ui.tab==='installments') body = renderInstallments(sim);
@@ -1502,12 +1532,12 @@ function render(){
   else if(ui.tab==='settings') body = renderSettings(sim);
   root.innerHTML =
     '<div class="topbar"><div class="topbar-inner">'
-    + '<div class="brand"><h1 style="font-size:19px;">Финансы</h1><span class="badge-year">'+esc(planYearsLabel(state))+'</span></div>'
+    + '<div class="brand"><h1 style="font-size:19px;">Финансы</h1></div>'
     + '<div class="topbar-right"><span class="savebadge" id="save-badge"></span>'
     + '<span class="today-date">Сегодня <b>'+esc(todayLong())+'</b></span></div>'
     + '</div>'
     + '<nav class="tabs">'
-    + tabBtn('dashboard','Обзор') + tabBtn('periods','Доходы') + tabBtn('categories','Категории') + tabBtn('goals','Накопления') + tabBtn('credits','Кредиты') + tabBtn('installments','Рассрочки') + tabBtn('vacations','Отпуска') + tabBtn('settings','Настройки')
+    + tabBtn('dashboard','Обзор') + tabBtn('periods','Доходы') + tabBtn('categories','Категории') + tabBtn('facts','Расходы') + tabBtn('goals','Накопления') + tabBtn('credits','Кредиты') + tabBtn('installments','Рассрочки') + tabBtn('vacations','Отпуска') + tabBtn('settings','Настройки')
     + '</nav></div>'
     + '<main>' + body + '</main>'
     + renderRedistModal();
@@ -1533,7 +1563,8 @@ function renderDashboard(sim){
   var yearRows = activeYear==null ? sim.rows : sim.rows.filter(function(r){ return r.period.monthRef.y===activeYear; });
   var totalIncome=0,totalExpenses=0,totalAllocated=0,totalUnallocated=0,shortfalls=0;
   yearRows.forEach(function(r){
-    totalIncome+=r.totalIncome; totalExpenses+=r.expenses; totalUnallocated+=Math.max(0,r.unallocated);
+    /* в «Расходы за год» входят категории, рассрочки и погашение кредиток из выплаты */
+    totalIncome+=r.totalIncome; totalExpenses+=r.expenses+sumValues(r.debtPayments); totalUnallocated+=Math.max(0,r.unallocated);
     Object.keys(r.allocations).forEach(function(k){ totalAllocated+=r.allocations[k]; });
     if(r.free<0) shortfalls++;
   });
@@ -1683,7 +1714,14 @@ function annualExpenses(st, sim, year){
   var rows = sim.rows.filter(function(r){ return r.period.monthRef.y===year; });
   var byPeriod = {};
   rows.forEach(function(r){ byPeriod[r.period.id] = r; });
-  var cats = st.categories.map(function(c){ return { name:c.name, amount:0 }; });
+  var cats = st.categories.map(function(c){ return { name:c.name, amount:0, fact: actualYearAmount(st, year, c) }; });
+  var planIds = {};
+  st.categories.forEach(function(c){ planIds[c.id] = true; });
+  factYearCategoryIds(st, year).forEach(function(cid){
+    if(planIds[cid]) return;
+    var sum = actualYearSumById(st, year, cid);
+    if(sum>0) cats.push({ name:(storedCategoryName(st, year, cid) || cid)+' (нет в плане)', amount:0, fact:sum });
+  });
   rows.forEach(function(r){
     var ov = st.categoryOverrides[r.period.id];
     st.categories.forEach(function(c,i){
@@ -1725,6 +1763,25 @@ function renderDashExpenses(sim, year){
     var pct = grand>0 ? amount/grand*100 : 0;
     return '<td class="num muted" style="width:64px;">'+(pct>0 && pct<1 ? '<1' : Math.round(pct))+'%</td>';
   }
+  /* категории: план как раньше, рядом факт из раздела «Расходы» и разница с цветом */
+  function catBlock(items, total){
+    var factTotal = items.reduce(function(sum,x){ return sum+(x.fact||0); },0);
+    return '<h3 style="font-size:14px;margin:14px 0 6px;">Категории</h3>'
+      + '<div class="small-note" style="margin:0 0 4px;">Факт берётся из раздела «Расходы» — суммы, которые вы внесли по месяцам этого года. План здесь — фактически заложенный в выплаты, вместе с ручными правками расходов; в разделе «Расходы» план считается по шаблону категорий.</div>'
+      + '<div class="table-scroll"><table><tr><th>Категория</th><th class="num">Доля</th><th class="num">План за год</th><th class="num">Факт за год</th><th class="num">Разница</th></tr>'
+      + items.slice().sort(function(a,b){ return b.amount-a.amount; }).map(function(x){
+          var cls = factRowClass(x.amount, x.fact||0, (x.fact||0)>0);
+          return '<tr class="'+cls+'"><td>'+esc(x.name)+'</td>'+pctCell(x.amount)
+            + '<td class="num">'+fmt(x.amount)+'</td>'
+            + '<td class="num">'+(x.fact ? fmt(x.fact) : '—')+'</td>'
+            + '<td class="num diff">'+(x.fact ? fmtSigned(x.fact-x.amount) : '')+'</td></tr>';
+        }).join('')
+      + '<tr class="'+factRowClass(total, factTotal, factTotal>0)+'"><td><b>Итого</b></td>'+pctCell(total)
+      + '<td class="num"><b>'+fmt(total)+'</b></td>'
+      + '<td class="num"><b>'+(factTotal?fmt(factTotal):'—')+'</b></td>'
+      + '<td class="num diff"><b>'+(factTotal?fmtSigned(factTotal-total):'')+'</b></td></tr>'
+      + '</table></div>';
+  }
   function listBlock(title, items, total, note){
     if(!items.length) return '<h3 style="font-size:14px;margin:14px 0 6px;">'+title+'</h3><div class="small-note">Нет расходов.</div>';
     return '<h3 style="font-size:14px;margin:14px 0 6px;">'+title+'</h3>'
@@ -1737,8 +1794,8 @@ function renderDashExpenses(sim, year){
       + '</table>';
   }
   return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Расходы за '+year+' год</h2></div>'
-    + '<div class="info-box" style="margin-bottom:6px;">В плитке «Расходы за год» учтены категории и платежи по рассрочке — они списываются из выплаты до копилок. Погашение кредиток и траты из копилок показаны отдельно: это деньги, которые уже были отложены или взяты в долг.</div>'
-    + listBlock('Категории', data.cats, catTotal)
+    + '<div class="info-box" style="margin-bottom:6px;">В плитке «Расходы за год» учтены категории, платежи по рассрочке и погашение кредиток — всё, что уходит из выплат. Траты из копилок показаны отдельно: это деньги, отложенные в прошлых выплатах, поэтому в плитку они не входят.</div>'
+    + catBlock(data.cats, catTotal)
     + '<h3 style="font-size:14px;margin:14px 0 6px;">Долги</h3>'
     + (instTotal>0 || cardTotal>0
         ? '<table>'
@@ -1749,7 +1806,7 @@ function renderDashExpenses(sim, year){
         : '<div class="small-note">Платежей по рассрочкам и кредиткам в этом году нет.</div>')
     + listBlock('Траты из копилок', data.goalSpends, goalTotal, 'Деньги, которые вы взяли из целей: переводы между копилками здесь не считаются.')
     + '<hr class="sep">'
-    + '<div class="row between"><b>Всего расходов и трат за год</b><span class="num" style="font-size:18px;font-weight:700;">'+fmt(grand)+'</span></div>'
+    + '<div class="row between"><b>Всего расходов и трат за год, включая копилки</b><span class="num" style="font-size:18px;font-weight:700;">'+fmt(grand)+'</span></div>'
     + '<div class="small-note">Проценты в таблицах — доля в этой сумме.</div>'
     + '</div>';
 }
@@ -1987,6 +2044,136 @@ function renderPeriodCard(r, st, plan, isPastCard, periodSim){
     + renderRemainderLine(r)
     + '</div>';
   return '<div class="period-card'+(open?' open':'')+(isPastCard?' past':'')+'" data-period-card="'+p.id+'">'+head+body+'</div>';
+}
+
+/* ============ фактические расходы (вводятся вручную, только для сравнения с планом) ============ */
+function actualsOf(st){ var d = debtsOf(st); return d.actuals || {}; }
+function monthKey(y,m){ return y+'-'+pad2(m); }
+function actualEntry(st, ym, catId){ var mm = actualsOf(st)[ym] || {}; return mm[catId] || null; }
+function actualItemAmount(st, ym, catId, itemName){
+  var e = actualEntry(st, ym, catId);
+  return (e && e.items && e.items[itemName]) || 0;
+}
+/* весь факт по категории за месяц: сумма категории целиком плюс все статьи,
+   включая статьи, которых в текущем плане уже нет (историю не теряем) */
+function actualCategorySum(st, ym, catId){
+  var e = actualEntry(st, ym, catId);
+  if(!e) return 0;
+  var sum = e.total || 0;
+  if(e.items) Object.keys(e.items).forEach(function(k){ sum += e.items[k]||0; });
+  return sum;
+}
+function actualYearSumById(st, year, catId){
+  var sum = 0;
+  for(var m=1;m<=12;m++) sum += actualCategorySum(st, monthKey(year,m), catId);
+  return sum;
+}
+function actualMonthTotal(st, ym){
+  var mm = actualsOf(st)[ym] || {}, sum = 0;
+  Object.keys(mm).forEach(function(cid){ sum += actualCategorySum(st, ym, cid); });
+  return sum;
+}
+/* категории, по которым за этот год есть факт (в том числе удалённые из плана) */
+function factYearCategoryIds(st, year){
+  var ids = [];
+  for(var m=1;m<=12;m++){
+    var mm = actualsOf(st)[monthKey(year,m)] || {};
+    Object.keys(mm).forEach(function(cid){ if(ids.indexOf(cid)===-1) ids.push(cid); });
+  }
+  return ids;
+}
+/* названия статей, по которым за этот год есть факт */
+function factYearItemNames(st, year, catId){
+  var names = [];
+  for(var m=1;m<=12;m++){
+    var e = actualEntry(st, monthKey(year,m), catId);
+    if(e && e.items) Object.keys(e.items).forEach(function(nm){ if(names.indexOf(nm)===-1) names.push(nm); });
+  }
+  return names;
+}
+/* название категории, как оно было сохранено с фактом: нужно для категорий,
+   удалённых из плана — иначе в истории останется только id */
+function storedCategoryName(st, year, catId){
+  var name = '';
+  for(var m=1;m<=12;m++){
+    var e = actualEntry(st, monthKey(year,m), catId);
+    if(e && e.name) name = e.name;
+  }
+  return name;
+}
+/* переименование в «Категориях»: факт переезжает вместе с названием */
+function renameActualItem(st, catId, oldName, newName){
+  if(!oldName || !newName || oldName===newName) return;
+  var all = actualsOf(st);
+  Object.keys(all).forEach(function(ym){
+    var e = all[ym][catId];
+    if(!e || !e.items || e.items[oldName]===undefined) return;
+    e.items[newName] = (e.items[newName]||0) + e.items[oldName];
+    delete e.items[oldName];
+  });
+}
+function renameActualCategory(st, catId, newName){
+  var all = actualsOf(st);
+  Object.keys(all).forEach(function(ym){ if(all[ym][catId]) all[ym][catId].name = newName; });
+}
+/* факт по категории: если есть статьи — это сумма их факта, иначе сумма самой категории */
+function actualCategoryAmount(st, ym, cat){ return actualCategorySum(st, ym, cat.id); }
+function actualYearAmount(st, year, cat){ return actualYearSumById(st, year, cat.id); }
+function setActual(st, ym, catId, itemName, amount, catName){
+  if(!st.debts.actuals) st.debts.actuals = {};
+  var all = st.debts.actuals;
+  var mm = all[ym] || (all[ym] = {});
+  var e = mm[catId] || (mm[catId] = {});
+  if(catName) e.name = catName;
+  if(itemName){
+    if(!e.items) e.items = {};
+    if(amount>0) e.items[itemName] = amount; else delete e.items[itemName];
+    if(e.items && !Object.keys(e.items).length) delete e.items;
+  } else {
+    if(amount>0) e.total = amount; else delete e.total;
+  }
+  if(!e.total && !e.items) delete mm[catId]; else if(!e.name){ var cc = st.categories.find(function(c){ return c.id===catId; }); if(cc) e.name = cc.name; }
+  if(!Object.keys(mm).length) delete all[ym];
+}
+/* План месяца берётся из шаблона «Категорий»: сумма категории за период × число выплат месяца,
+   с учётом сезонов. Ручные правки расходов в карточке выплаты здесь НЕ учитываются — так видно,
+   насколько факт разошёлся с изначальным планом года. */
+function monthPeriodsOf(st, y, m){
+  return st.periods.filter(function(p){ return p.monthRef.y===y && p.monthRef.m===m; });
+}
+function categoryPlanForMonth(st, cat, y, m){
+  var ps = monthPeriodsOf(st, y, m);
+  /* месяца нет в плане выплат — значит и плана расходов на него нет */
+  if(!ps.length) return 0;
+  var sum = 0;
+  ps.forEach(function(p){ sum += categoryPlannedTotalForDate(cat, p.date); });
+  return sum;
+}
+function itemPlanForMonth(st, cat, item, y, m){
+  var ps = monthPeriodsOf(st, y, m);
+  if(!ps.length) return 0;
+  var sum = 0;
+  ps.forEach(function(p){
+    if(cat.season && !inSeason(p.date, cat.season)) return;
+    if(item.season && !inSeason(p.date, item.season)) return;
+    sum += item.amount||0;
+  });
+  return sum;
+}
+function categoryPlanForYear(st, cat, year){
+  var sum = 0;
+  for(var m=1;m<=12;m++) sum += categoryPlanForMonth(st, cat, year, m);
+  return sum;
+}
+/* цвет строки: факт меньше плана — зелёный, разница в пределах 5% — обычный, больше плана — красный */
+function factRowClass(plan, fact, entered){
+  if(!entered) return '';
+  /* нет плана — не с чем сравнивать, строка остаётся без подсветки */
+  if(plan<=0) return '';
+  var diff = (fact-plan)/plan;
+  if(diff > 0.05) return 'fact-over';
+  if(diff < -0.05) return 'fact-under';
+  return 'fact-even';
 }
 
 /* ---------- статус платежей: оплачено или ещё нет ---------- */
@@ -2302,6 +2489,117 @@ function renderCategories(sim){
     + '<div class="grid cols-2">' + cards + '</div></div>';
 }
 
+/* ---------- факт: расходы по месяцам ---------- */
+function activeFactMonth(){
+  if(ui.factMonth>=1 && ui.factMonth<=12) return ui.factMonth;
+  return parseInt(todayISO().slice(5,7),10);
+}
+function renderFacts(sim){
+  var year = currentYear(state);
+  if(year==null) return '<div class="card"><div class="muted">Сначала добавьте периоды выплат.</div></div>';
+  var m = activeFactMonth();
+  var ym = monthKey(year, m);
+  var monthTabs = '<div class="month-tabs">' + MONTH_NAMES.slice(1).map(function(name, i){
+      var mm = i+1;
+      var plan = state.categories.reduce(function(sum,c){ return sum + categoryPlanForMonth(state, c, year, mm); },0);
+      var fact = actualMonthTotal(state, monthKey(year,mm));
+      var cls = factRowClass(plan, fact, fact>0);
+      var dot = cls==='fact-over' ? ' ●' : (cls==='fact-under' ? ' ●' : (fact>0 ? ' ●' : ''));
+      var color = cls==='fact-over' ? 'var(--danger)' : (cls==='fact-under' ? 'var(--good)' : 'var(--muted)');
+      return '<button class="small'+(mm===m?' active':'')+'" data-fact-month="'+mm+'">'+name.slice(0,3)
+        + (dot ? '<span style="color:'+color+';">'+dot+'</span>' : '') + '</button>';
+    }).join('') + '</div>';
+
+  var totalPlan = 0, totalFact = 0;
+  var histPill = ' <span class="pill warn" style="font-size:9px;">нет в плане</span>';
+  function factInput(catId, itemName, value){
+    return '<input type="text" inputmode="numeric" class="num fact-input" data-fact-amount data-cat="'+catId
+      + '" data-item="'+esc(itemName||'')+'" value="'+(value||'')+'" placeholder="0">';
+  }
+  function factRow(label, plan, fact, input, opts){
+    opts = opts || {};
+    var entered = opts.entered!=null ? opts.entered : fact>0;
+    var cls = (opts.item ? 'fact-item ' : '') + factRowClass(plan, fact, entered);
+    return '<tr class="'+cls+'"><td'+(opts.item?' class="muted"':'')+'>'+label+'</td>'
+      + '<td class="num">'+fmt(plan)+'</td>'
+      + '<td class="num">'+input+'</td>'
+      + '<td class="num diff">'+(entered ? fmtSigned(fact-plan) : '')+'</td></tr>';
+  }
+  /* строки берутся из текущих «Категорий», а всё, по чему за этот год есть факт,
+     но в плане уже нет, добавляется отдельными строками с пометкой «нет в плане» */
+  function categoryRows(c, planByDefault){
+    var plan = planByDefault ? categoryPlanForMonth(state, c, year, m) : 0;
+    var fact = actualCategorySum(state, ym, c.id);
+    var entry = actualEntry(state, ym, c.id);
+    var hasItems = !!(c.items && c.items.length);
+    var planItemNames = hasItems ? c.items.map(function(it){ return it.name; }) : [];
+    var extraNames = factYearItemNames(state, year, c.id).filter(function(nm){ return planItemNames.indexOf(nm)===-1; });
+    totalPlan += plan; totalFact += fact;
+    var showItems = hasItems || extraNames.length;
+    var label = '<b>'+esc(c.name)+'</b>'+(c.season?' <span class="muted" style="font-size:10px;">сезон</span>':'')+(planByDefault?'':histPill);
+    var catInput = showItems
+      ? '<b class="num">'+fmt(fact)+'</b><div class="small-note" style="margin:0;">сумма статей</div>'
+      : factInput(c.id, '', entry && entry.total ? entry.total : '');
+    var enteredCat = showItems ? fact>0 : !!(entry && entry.total);
+    var html = factRow(label, plan, fact, catInput, { entered:enteredCat });
+    if(hasItems){
+      html += c.items.map(function(it){
+        var iPlan = planByDefault ? itemPlanForMonth(state, c, it, year, m) : 0;
+        var iFact = actualItemAmount(state, ym, c.id, it.name);
+        return factRow(esc(it.name), iPlan, iFact, factInput(c.id, it.name, iFact), { item:true });
+      }).join('');
+    }
+    html += extraNames.map(function(nm){
+      var iFact = actualItemAmount(state, ym, c.id, nm);
+      return factRow(esc(nm)+histPill, 0, iFact, factInput(c.id, nm, iFact), { item:true });
+    }).join('');
+    /* сумма, внесённая по категории целиком ещё до того, как у неё появились статьи */
+    if(showItems && entry && entry.total){
+      html += factRow('по категории целиком', 0, entry.total, factInput(c.id, '', entry.total), { item:true });
+    }
+    return html;
+  }
+  var planIds = {};
+  state.categories.forEach(function(c){ planIds[c.id] = true; });
+  var histCats = factYearCategoryIds(state, year).filter(function(cid){ return !planIds[cid]; })
+    .map(function(cid){ return { id:cid, name: storedCategoryName(state, year, cid) || cid, items:[] }; });
+  var rows = state.categories.map(function(c){ return categoryRows(c, true); }).join('')
+    + histCats.map(function(c){ return categoryRows(c, false); }).join('');
+  var totalCls = factRowClass(totalPlan, totalFact, totalFact>0);
+
+  var yearRows = '';
+  var yPlan = 0, yFact = 0;
+  for(var mm=1; mm<=12; mm++){
+    var pSum = state.categories.reduce(function(sum,c){ return sum + categoryPlanForMonth(state, c, year, mm); },0);
+    var fSum = actualMonthTotal(state, monthKey(year,mm));
+    yPlan += pSum; yFact += fSum;
+    var cls2 = factRowClass(pSum, fSum, fSum>0);
+    yearRows += '<tr class="'+cls2+'"><td>'+MONTH_NAMES[mm]+'</td><td class="num">'+fmt(pSum)+'</td>'
+      + '<td class="num">'+(fSum?fmt(fSum):'—')+'</td><td class="num diff">'+(fSum?fmtSigned(fSum-pSum):'')+'</td></tr>';
+  }
+
+  return debtsStorageWarning()
+    + yearTabsNav(state)
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Фактические расходы '+year+'</h2></div>'
+    + '<div class="info-box" style="margin-bottom:12px;">Здесь вносятся <b>фактические</b> траты по месяцам. На план они не влияют и в расчёт выплат не попадают — нужны только для сравнения. План месяца берётся из шаблона «Категорий»: сумма категории за период × число выплат этого месяца, с учётом сезонов. Ручные правки расходов в карточках выплат здесь не учитываются — так видно отклонение факта от изначального плана года. Если выплат за месяц в плане нет, плана нет и строка не подсвечивается. Цвет строки: факт меньше плана — зелёный, разница в пределах 5% — обычный фон, факт больше плана более чем на 5% — красный. У категории со статьями факт складывается из статей. Список берётся из раздела «Категории», но факт хранится отдельно по каждому году: если позже категорию или статью убрать из плана, внесённые за прошлый год суммы останутся здесь с пометкой «нет в плане». При переименовании категории или статьи факт переезжает вместе с названием.</div>'
+    + monthTabs
+    + '<div class="debt-stats">'
+    + '<div><div class="v">'+fmt(totalPlan)+'</div><div class="l">План на '+MONTH_NAMES[m].toLowerCase()+'</div></div>'
+    + '<div><div class="v">'+fmt(totalFact)+'</div><div class="l">Факт</div></div>'
+    + '<div><div class="v" style="color:'+(totalCls==='fact-over'?'var(--danger)':(totalCls==='fact-under'?'var(--good)':'var(--ink)'))+';">'+(totalFact?fmtSigned(totalFact-totalPlan):'—')+'</div><div class="l">Разница</div></div>'
+    + '</div>'
+    + '<div class="table-scroll"><table><tr><th>Категория</th><th class="num">План</th><th class="num">Факт</th><th class="num">Разница</th></tr>'
+    + rows
+    + '<tr class="'+totalCls+'"><td><b>Итого за '+MONTH_NAMES[m].toLowerCase()+'</b></td><td class="num"><b>'+fmt(totalPlan)+'</b></td><td class="num"><b>'+fmt(totalFact)+'</b></td><td class="num diff"><b>'+(totalFact?fmtSigned(totalFact-totalPlan):'')+'</b></td></tr>'
+    + '</table></div>'
+    + '<h3 style="font-size:14px;margin:18px 0 8px;">План и факт по месяцам</h3>'
+    + '<div class="table-scroll"><table><tr><th>Месяц</th><th class="num">План</th><th class="num">Факт</th><th class="num">Разница</th></tr>'
+    + yearRows
+    + '<tr><td><b>Итого за год</b></td><td class="num"><b>'+fmt(yPlan)+'</b></td><td class="num"><b>'+(yFact?fmt(yFact):'—')+'</b></td><td class="num diff"><b>'+(yFact?fmtSigned(yFact-yPlan):'')+'</b></td></tr>'
+    + '</table></div>'
+    + '</div>';
+}
+
 /* ---------- goals ---------- */
 function renderGoals(sim){
   var sorted = state.goals.slice().sort(function(a,b){return a.priority-b.priority;});
@@ -2582,6 +2880,16 @@ function attachEvents(sim){
   root.querySelectorAll('[data-tab]').forEach(function(btn){
     btn.addEventListener('click', function(){ ui.tab = btn.getAttribute('data-tab'); render(); });
   });
+  root.querySelectorAll('[data-fact-month]').forEach(function(b){ b.addEventListener('click', function(){
+    ui.factMonth = parseInt(b.getAttribute('data-fact-month'),10);
+    render();
+  }); });
+  bindChange('[data-fact-amount]', function(el){
+    var ym = monthKey(currentYear(state), activeFactMonth());
+    var catId = el.getAttribute('data-cat');
+    var cat = state.categories.find(function(c){ return c.id===catId; });
+    setActual(state, ym, catId, el.getAttribute('data-item'), Math.max(0, parseNum(el.value)), cat ? cat.name : '');
+  });
   root.querySelectorAll('[data-dash-tab]').forEach(function(el){
     el.addEventListener('click', function(){ ui.dashView = el.getAttribute('data-dash-tab'); render(); });
   });
@@ -2721,9 +3029,20 @@ function attachEvents(sim){
     var cat = state.categories.find(function(c){return c.id===b.dataset.cat;});
     if(cat){ cat.items.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
   }); });
-  bindChange('[data-cat-name]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c) c.name=el.value; });
+  bindChange('[data-cat-name]', function(el){
+    var c=state.categories.find(function(c){return c.id===el.dataset.cat;});
+    if(c){ c.name=el.value; renameActualCategory(state, c.id, el.value); }
+  });
   bindChange('[data-cat-amount]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c) c.amount=parseNum(el.value); });
-  bindChange('[data-item-name]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c) c.items[parseInt(el.dataset.idx,10)].name=el.value; });
+  bindChange('[data-item-name]', function(el){
+    var c=state.categories.find(function(c){return c.id===el.dataset.cat;});
+    if(!c) return;
+    var it = c.items[parseInt(el.dataset.idx,10)];
+    if(!it) return;
+    var oldName = it.name;
+    it.name = el.value;
+    renameActualItem(state, c.id, oldName, el.value);
+  });
   bindChange('[data-item-amount]', function(el){ var c=state.categories.find(function(c){return c.id===el.dataset.cat;}); if(c) c.items[parseInt(el.dataset.idx,10)].amount=parseNum(el.value); });
 
   /* categories: seasonality */
