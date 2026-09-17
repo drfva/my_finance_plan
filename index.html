@@ -107,6 +107,20 @@ input:disabled,select:disabled{background:var(--surface-2);color:var(--muted);cu
 .modal{background:var(--surface);border:1px solid var(--line);border-radius:14px;max-width:520px;width:100%;max-height:90vh;overflow:auto;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,.25);}
 .redist-row{display:grid;grid-template-columns:1fr 130px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);}
 .redist-row .hint{font-size:11px;color:var(--muted);}
+.item-row.wd-row{grid-template-columns:130px 1fr 110px auto;}
+.item-row.op-row{grid-template-columns:130px 110px 1fr 110px auto;}
+.item-row.ip-row{grid-template-columns:140px 1fr auto auto;}
+@media (max-width:560px){
+  .item-row.wd-row{grid-template-columns:1fr 1fr auto;}
+  .item-row.wd-row [data-wd-note]{grid-column:1 / -1;order:-1;}
+  .item-row.op-row{grid-template-columns:1fr 1fr auto;}
+  .item-row.op-row [data-cop-note]{grid-column:1 / -1;}
+}
+.debt-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:6px 0 8px;}
+@media (max-width:560px){.debt-stats{grid-template-columns:1fr 1fr;}}
+.debt-stats .v{font-family:var(--font-mono);font-size:17px;font-weight:600;}
+.debt-stats .l{font-size:11px;color:var(--muted);}
+.table-scroll{overflow-x:auto;}
 ::selection{background:var(--accent-soft);}
 </style>
 </head><body>
@@ -242,6 +256,29 @@ function uid(p){ return p+'-'+Math.random().toString(36).slice(2,9); }
 var state = null;
 var publishTimer = null;
 var saveStatus = 'idle';
+/* кредитки и рассрочки хранятся в отдельных таблицах (debts.sql) через get/save_debts_state */
+var debtsStorageOk = false;
+function emptyDebts(){ return { cards:[], installments:[], paymentOverrides:{} }; }
+function normalizeDebts(d){
+  d = (d && typeof d==='object') ? d : {};
+  var out = emptyDebts();
+  (d.cards||[]).forEach(function(c){
+    out.cards.push({ id:c.id||uid('card'), name:c.name||'', limit:Number(c.limit)||0,
+      graceDays:(c.graceDays!=null && c.graceDays!=='') ? Number(c.graceDays) : 60,
+      ops:(c.ops||[]).map(function(o){ return { id:o.id||uid('op'), date:o.date||'', amount:Math.abs(Number(o.amount)||0), kind:o.kind==='payment'?'payment':'spend', note:o.note||'' }; }) });
+  });
+  (d.installments||[]).forEach(function(i){
+    out.installments.push({ id:i.id||uid('inst'), name:i.name||'', total:Number(i.total)||0, parts:Number(i.parts)||1,
+      interval:i.interval==='1m'?'1m':'2w', firstDate:i.firstDate||'',
+      payments:(i.payments||[]).map(function(p){ return { id:p.id||uid('ip'), date:p.date||'', amount:Number(p.amount)||0 }; }) });
+  });
+  var po = d.paymentOverrides||{};
+  Object.keys(po).forEach(function(pid){
+    out.paymentOverrides[pid] = {};
+    Object.keys(po[pid]||{}).forEach(function(cid){ out.paymentOverrides[pid][cid] = Number(po[pid][cid])||0; });
+  });
+  return out;
+}
 
 async function loadStateFromDB(){
   var s = null;
@@ -260,6 +297,16 @@ async function loadStateFromDB(){
   (s.goals||[]).forEach(function(g){ if(!g.subgoals) g.subgoals=[]; });
   (s.periods||[]).forEach(function(p){ if(p.locked===undefined) p.locked=false; });
   state = s;
+  try{
+    var dr = await supabaseClient.rpc('get_debts_state');
+    if(dr.error) throw dr.error;
+    state.debts = normalizeDebts(dr.data);
+    debtsStorageOk = true;
+  }catch(e){
+    console.error('Кредиты и рассрочки не загружены (выполнен ли debts.sql?):', e);
+    state.debts = emptyDebts();
+    debtsStorageOk = false;
+  }
 }
 
 function scheduleSave(){
@@ -270,10 +317,18 @@ function scheduleSave(){
 }
 async function doPublish(){
   try{
-    var result = await supabaseClient.rpc('save_full_state', { p_state: state });
+    /* долги уходят отдельным запросом, в основное состояние их не передаём */
+    var payload = Object.assign({}, state);
+    delete payload.debts;
+    var result = await supabaseClient.rpc('save_full_state', { p_state: payload });
     if(result.error) throw result.error;
+    if(debtsStorageOk){
+      var r2 = await supabaseClient.rpc('save_debts_state', { p_state: state.debts });
+      if(r2.error) throw r2.error;
+    }
     saveStatus = 'saved';
   }catch(e){
+    console.error('Ошибка сохранения:', e);
     saveStatus = 'error';
   }
   updateSaveBadge();
@@ -313,6 +368,20 @@ function calendarDaysInclusive(startISO,endISO){
 function todayISO(){
   var d = new Date();
   return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());
+}
+function addDaysISO(iso, n){ var d = new Date(iso+'T00:00:00Z'); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+function addMonthsISO(iso, n){
+  var y=parseInt(iso.slice(0,4),10), m=parseInt(iso.slice(5,7),10), d=parseInt(iso.slice(8,10),10);
+  var idx = (y*12 + (m-1)) + n;
+  y = Math.floor(idx/12); m = idx - y*12 + 1;
+  return isoDate(y, m, Math.min(d, daysInMonth(y,m)));
+}
+function daysBetween(a,b){ return calendarDaysInclusive(a,b)-1; }
+function plural(n, one, few, many){
+  var n10 = n%10, n100 = n%100;
+  if(n10===1 && n100!==11) return one;
+  if(n10>=2 && n10<=4 && (n100<12 || n100>14)) return few;
+  return many;
 }
 
 /* ============ seasonal categories (MM-DD ranges, wrap around new year) ============ */
@@ -424,6 +493,7 @@ function ensurePastPeriodsLocked(st){
     if(r){
       if(!st.savingsOverrides[p.id]) st.savingsOverrides[p.id] = {};
       Object.keys(r.allocations).forEach(function(gid){ st.savingsOverrides[p.id][gid] = Math.round(r.allocations[gid]); });
+      snapshotDebtPayments(st, p.id, r);
     }
     p.locked = true;
   });
@@ -634,6 +704,81 @@ function goalOverallStatus(g, sim){
   return { label:'В работе', cls:'warn' };
 }
 
+/* ============ долги: рассрочки и кредитки ============ */
+function debtsOf(st){ return st.debts || emptyDebts(); }
+function buildInstallmentSchedule(total, parts, firstDate, interval){
+  parts = Math.max(1, Math.round(parts||1));
+  total = Math.max(0, Math.round(total||0));
+  var base = Math.floor(total/parts), rest = total - base*parts, out = [];
+  for(var i=0;i<parts;i++){
+    out.push({ id:uid('ip'), date: interval==='1m' ? addMonthsISO(firstDate,i) : addDaysISO(firstDate,14*i), amount: base + (i<rest?1:0) });
+  }
+  return out;
+}
+/* платёж рассрочки оплачивается из последней выплаты не позже его даты:
+   выплата 05.05, платёж 07.05, следующая выплата 20.05 → платёж идёт из выплаты 05.05.
+   Платежи в одну дату (от разных покупок) складываются. */
+function installmentPaymentsByPeriod(st, sortedPeriods){
+  var map = {};
+  debtsOf(st).installments.forEach(function(inst){
+    (inst.payments||[]).forEach(function(pay){
+      if(!pay.date || !(pay.amount>0)) return;
+      var target = null;
+      for(var i=0;i<sortedPeriods.length;i++){ if(sortedPeriods[i].date<=pay.date) target = sortedPeriods[i]; else break; }
+      if(!target) return;
+      var list = map[target.id] = map[target.id] || [];
+      var same = list.find(function(x){ return x.date===pay.date; });
+      if(!same){ same = { date:pay.date, amount:0, names:[] }; list.push(same); }
+      same.amount += pay.amount;
+      var nm = inst.name || 'Покупка';
+      if(same.names.indexOf(nm)===-1) same.names.push(nm);
+    });
+  });
+  Object.keys(map).forEach(function(k){ map[k].sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); }); });
+  return map;
+}
+function sortedCardOps(card){
+  return (card.ops||[]).filter(function(o){ return o.date; }).slice().sort(function(a,b){
+    if(a.date!==b.date) return a.date<b.date?-1:1;
+    return (a.kind==='spend'?0:1)-(b.kind==='spend'?0:1);
+  });
+}
+/* Кредитка: трата при нулевом долге запускает льготный период (graceDays, по умолчанию 60 дней);
+   пока долг не погашен полностью, новые траты срок не сдвигают. Полное погашение закрывает
+   период, следующая трата начинает новый. */
+function newCardState(){ return { debt:0, cycleStart:null, deadline:null }; }
+function cardApplyPayment(cs, amt, dateISO, cycles){
+  if(!amt) return;
+  cs.debt -= amt;
+  if(cs.debt<=0.5){
+    cs.debt = 0;
+    if(cs.cycleStart && cycles){
+      for(var i=0;i<cycles.length;i++){ if(cycles[i].start===cs.cycleStart && !cycles[i].closed){ cycles[i].closed = dateISO; break; } }
+    }
+    cs.cycleStart = null; cs.deadline = null;
+  }
+}
+function cardApplyOp(cs, card, op, cycles){
+  var amt = Math.abs(op.amount||0);
+  if(!amt) return;
+  if(op.kind==='payment'){ cardApplyPayment(cs, amt, op.date, cycles); return; }
+  if(cs.debt<=0.5){
+    cs.debt = 0;
+    cs.cycleStart = op.date;
+    cs.deadline = addDaysISO(op.date, (card.graceDays!=null && !isNaN(card.graceDays)) ? card.graceDays : 60);
+    if(cycles) cycles.push({ start:cs.cycleStart, deadline:cs.deadline, closed:null });
+  }
+  cs.debt += amt;
+}
+function snapshotDebtPayments(st, pid, row){
+  if(!st.debts || !row) return;
+  var po = st.debts.paymentOverrides;
+  Object.keys(row.debtPayments||{}).forEach(function(cid){
+    if(!po[pid]) po[pid] = {};
+    if(po[pid][cid]===undefined) po[pid][cid] = Math.round(row.debtPayments[cid]);
+  });
+}
+
 /* ============ simulation / waterfall ============ */
 function simulate(st){
   var periods = st.periods.slice().sort(function(a,b){ return a.date<b.date?-1:1; });
@@ -686,14 +831,75 @@ function simulate(st){
     }
   }
 
+  /* ---- долги ---- */
+  var debts = debtsOf(st);
+  var instByPeriod = installmentPaymentsByPeriod(st, periods);
+  var cards = debts.cards;
+  var cardStates = {}, cardCycles = {}, cardOps = {}, cardOpPtr = {};
+  cards.forEach(function(c){ cardStates[c.id]=newCardState(); cardCycles[c.id]=[]; cardOps[c.id]=sortedCardOps(c); cardOpPtr[c.id]=0; });
+  function applyCardOpsUpTo(dateISO){
+    cards.forEach(function(c){
+      var ops = cardOps[c.id];
+      while(cardOpPtr[c.id]<ops.length && (dateISO===null || ops[cardOpPtr[c.id]].date<=dateISO)){
+        cardApplyOp(cardStates[c.id], c, ops[cardOpPtr[c.id]++], cardCycles[c.id]);
+      }
+    });
+  }
+  /* сколько останется от каждой выплаты после расходов, рассрочек и уже зафиксированных сумм
+     в копилки — для прогноза, хватит ли будущих выплат погасить кредитку в срок */
+  var baseFree = {};
+  periods.forEach(function(p){
+    var inc = (p.incomeActual||0) + vacationPayForPeriod(p, st);
+    var exp = categoriesTotalForPeriod(p, st) + (instByPeriod[p.id]||[]).reduce(function(sum,x){ return sum+x.amount; },0);
+    var committed = 0, ov = st.savingsOverrides[p.id];
+    if(p.locked || (ov && Object.keys(ov).length)) Object.keys(ov||{}).forEach(function(gid){ committed += ov[gid]||0; });
+    baseFree[p.id] = inc - exp - committed;
+  });
+  /* Сколько обязательно заплатить по карте из этой выплаты: равными частями по выплатам до конца
+     льготного периода, но не меньше, чем нужно, чтобы остаток (с будущими тратами до срока)
+     покрыли следующие выплаты. Если срок уже прошёл или это последняя выплата до срока — весь долг. */
+  function cardRequiredPayment(c, cs, p){
+    if(cs.debt<=0.5 || !cs.deadline) return 0;
+    if(cs.deadline < p.date) return cs.debt;
+    var left = periods.filter(function(pp){ return pp.date>=p.date && pp.date<=cs.deadline; });
+    if(left.length<=1) return cs.debt;
+    var even = cs.debt/left.length;
+    var futureFree = 0;
+    left.forEach(function(pp){ if(pp.date>p.date) futureFree += Math.max(0, baseFree[pp.id]); });
+    var futureNet = 0;
+    cardOps[c.id].forEach(function(o){ if(o.date>p.date && o.date<=cs.deadline) futureNet += (o.kind==='payment'?-1:1)*Math.abs(o.amount||0); });
+    return Math.min(cs.debt, Math.max(even, cs.debt + futureNet - futureFree));
+  }
+
   var rows=[];
   periods.forEach(function(p){
     var salary = p.incomeActual||0;
     var vac = vacationPayForPeriod(p, st);
     var totalIncome = salary+vac;
-    var expenses = categoriesTotalForPeriod(p, st);
+    /* сначала расходы по категориям, затем платежи по рассрочке этого периода */
+    var categoriesTotal = categoriesTotalForPeriod(p, st);
+    var instList = instByPeriod[p.id] || [];
+    var installmentsTotal = instList.reduce(function(sum,x){ return sum+x.amount; },0);
+    var expenses = categoriesTotal + installmentsTotal;
     applyWithdrawalsUpTo(p.date);
     var free = totalIncome - expenses;
+    /* затем кредитки — раньше копилок: по графику, чтобы успеть к концу льготного периода */
+    applyCardOpsUpTo(p.date);
+    var debtPayments = {}, cardBefore = {};
+    var payOv = debts.paymentOverrides[p.id] || {};
+    var cardOrder = cards.slice().sort(function(a,b){
+      var ka = cardStates[a.id].deadline || '9999-99-99', kb = cardStates[b.id].deadline || '9999-99-99';
+      return ka<kb?-1:(ka>kb?1:0);
+    });
+    cardOrder.forEach(function(c){
+      var cs = cardStates[c.id];
+      cardBefore[c.id] = { debt: cs.debt, deadline: cs.deadline };
+      var pay;
+      if(payOv[c.id]!==undefined) pay = Math.min(Math.max(0, payOv[c.id]), cs.debt);
+      else if(p.locked) pay = 0;
+      else pay = Math.min(cardRequiredPayment(c, cs, p), Math.max(0, free), cs.debt);
+      if(pay>0.0001){ debtPayments[c.id] = pay; free -= pay; cardApplyPayment(cs, pay, p.date, cardCycles[c.id]); }
+    });
     var allocations = {};
     var override = st.savingsOverrides[p.id];
     /* a locked period never falls through to auto-calc, even if its frozen override is an
@@ -772,12 +978,25 @@ function simulate(st){
         }
       }
     }
+    /* что осталось после копилок — досрочно в кредитку */
+    if(!p.locked && free>0.5){
+      cardOrder.forEach(function(c){
+        if(free<=0.5 || payOv[c.id]!==undefined) return;
+        var cs = cardStates[c.id];
+        var extra = Math.min(cs.debt, free);
+        if(extra>0.0001){ debtPayments[c.id] = (debtPayments[c.id]||0)+extra; free -= extra; cardApplyPayment(cs, extra, p.date, cardCycles[c.id]); }
+      });
+    }
     rows.push({ period:p, salary:salary, vacationPay:vac, totalIncome:totalIncome, expenses:expenses,
+      categoriesTotal: categoriesTotal, installments: instList, installmentsTotal: installmentsTotal,
+      debtPayments: debtPayments, cardBefore: cardBefore, cardState: clone(cardStates),
       free: totalIncome-expenses, unallocated: free, allocations: allocations, goalSnapshot: clone(goalSaved),
       phaseSnapshot: { idx: clone(phaseIdx), saved: clone(phaseSaved) } });
   });
   applyWithdrawalsUpTo(null);
-  return { rows: rows, finalGoalSaved: goalSaved, milestoneDates: milestoneDates, finalPhaseIdx: phaseIdx, finalPhaseSaved: phaseSaved, initialPhase: initialPhase };
+  applyCardOpsUpTo(null);
+  return { rows: rows, finalGoalSaved: goalSaved, milestoneDates: milestoneDates, finalPhaseIdx: phaseIdx, finalPhaseSaved: phaseSaved, initialPhase: initialPhase,
+    cardCycles: cardCycles, planEnd: periods.length ? periods[periods.length-1].date : '' };
 }
 
 /* ============ состояние копилок на дату ============ */
@@ -816,6 +1035,38 @@ function goalNeedAt(g, sim, dateISO){
   return { need: Math.max(0, goalFinalTarget(g)-progress), deadline: deadline };
 }
 
+/* долг по карте на дату: состояние после последней выплаты ≤ даты + операции после неё */
+function cardStateAt(card, sim, dateISO){
+  var row = lastRowAtOrBefore(sim, dateISO);
+  var cs = (row && row.cardState && row.cardState[card.id]) ? clone(row.cardState[card.id]) : newCardState();
+  var after = row ? row.period.date : '';
+  sortedCardOps(card).forEach(function(o){ if(o.date>after && o.date<=dateISO) cardApplyOp(cs, card, o, null); });
+  return cs;
+}
+function cardForecast(card, sim, dateISO){
+  var cs = cardStateAt(card, sim, dateISO);
+  var cyc = null;
+  if(cs.debt>0.5){
+    ((sim.cardCycles && sim.cardCycles[card.id]) || []).forEach(function(c){ if(c.start===cs.cycleStart) cyc = c; });
+  }
+  return { state:cs, cycle:cyc };
+}
+function cardCycleStatus(cy, planEnd){
+  if(cy.closed) return cy.closed<=cy.deadline ? { label:'в срок', cls:'ok' } : { label:'позже срока', cls:'danger' };
+  if(planEnd && cy.deadline>planEnd) return { label:'срок за пределами плана', cls:'warn' };
+  return { label:'не погашен к сроку', cls:'danger' };
+}
+function cardStatusPill(fc, sim){
+  if(fc.state.debt<=0.5) return { label:'Долга нет', cls:'ok' };
+  var c = fc.cycle;
+  if(c && c.closed){
+    if(c.closed<=c.deadline) return { label:'Прогноз: закроется '+ruDate(c.closed)+' — в срок', cls:'ok' };
+    return { label:'Прогноз: закроется '+ruDate(c.closed)+' — позже срока '+ruDate(c.deadline), cls:'danger' };
+  }
+  if(sim.planEnd && fc.state.deadline && fc.state.deadline>sim.planEnd) return { label:'Срок '+ruDate(fc.state.deadline)+' за пределами плана — добавьте следующий год', cls:'warn' };
+  return { label:'Не успевает закрыться до '+ruDate(fc.state.deadline), cls:'danger' };
+}
+
 /* ============ нормализация состояния перед отрисовкой ============ */
 /* подцели всегда идут по сроку закрытия: раньше срок — выше; без срока — в конце */
 function sortSubgoalsByDeadline(st){
@@ -828,6 +1079,18 @@ function sortSubgoalsByDeadline(st){
     });
     for(var i=0;i<sorted.length;i++){ if(sorted[i]!==g.subgoals[i]){ changed = true; break; } }
     if(changed) g.subgoals = sorted;
+  });
+  return changed;
+}
+function sortInstallmentPayments(st){
+  var changed = false;
+  debtsOf(st).installments.forEach(function(inst){
+    if(!inst.payments || inst.payments.length<2) return;
+    var sorted = inst.payments.slice().sort(function(a,b){
+      var ka = a.date || '9999-99-99', kb = b.date || '9999-99-99';
+      return ka<kb?-1:(ka>kb?1:0);
+    });
+    for(var i=0;i<sorted.length;i++){ if(sorted[i]!==inst.payments[i]){ inst.payments = sorted; changed = true; break; } }
   });
   return changed;
 }
@@ -921,14 +1184,14 @@ function applyRedistribution(){
   var src = findGoal(d.goalId);
   if(!src) { redistDraft = null; return; }
   if(!src.withdrawals) src.withdrawals = [];
-  src.withdrawals.push({ date:d.date, amount:t.total, note:'Перераспределение остатка в другие цели' });
+  src.withdrawals.push({ date:d.date, amount:t.total, note:'Перераспределение остатка в другие цели', label:'Перераспределение остатка в другие цели' });
   d.rows.forEach(function(r){
     if(!(r.amount>0)) return;
     var g = findGoal(r.goalId);
     if(!g) return;
     if(!g.withdrawals) g.withdrawals = [];
     /* пополнение хранится как «трата» с отрицательной суммой */
-    g.withdrawals.push({ date:d.date, amount:-r.amount, note:'Перевод из «'+d.goalName+'»' });
+    g.withdrawals.push({ date:d.date, amount:-r.amount, note:'Перевод из «'+d.goalName+'»', label:'Перевод из «'+d.goalName+'»' });
   });
   redistDraft = null;
 }
@@ -953,6 +1216,7 @@ function render(){
   if(!root) root = document.getElementById('root');
   var changed = sortSubgoalsByDeadline(state);
   changed = syncIncome2026(state) || changed;
+  changed = sortInstallmentPayments(state) || changed;
   changed = ensurePastPeriodsLocked(state) || changed;
   if(changed){
     clearTimeout(publishTimer); saveStatus='pending'; publishTimer=setTimeout(doPublish,500);
@@ -964,6 +1228,8 @@ function render(){
   else if(ui.tab==='periods') body = renderPeriods(sim);
   else if(ui.tab==='categories') body = renderCategories(sim);
   else if(ui.tab==='goals') body = renderGoals(sim);
+  else if(ui.tab==='credits') body = renderCredits(sim);
+  else if(ui.tab==='installments') body = renderInstallments(sim);
   else if(ui.tab==='settings') body = renderSettings(sim);
   root.innerHTML =
     '<div class="topbar"><div class="topbar-inner">'
@@ -972,7 +1238,7 @@ function render(){
     + '<span class="today-date">Сегодня <b>'+esc(todayLong())+'</b></span></div>'
     + '</div>'
     + '<nav class="tabs">'
-    + tabBtn('dashboard','Обзор') + tabBtn('periods','Доходы') + tabBtn('categories','Категории') + tabBtn('goals','Накопления') + tabBtn('settings','Настройки')
+    + tabBtn('dashboard','Обзор') + tabBtn('periods','Доходы') + tabBtn('categories','Категории') + tabBtn('goals','Накопления') + tabBtn('credits','Кредиты') + tabBtn('installments','Рассрочки') + tabBtn('settings','Настройки')
     + '</nav></div>'
     + '<main>' + body + '</main>'
     + renderRedistModal();
@@ -1104,6 +1370,39 @@ function renderPeriods(sim){
     + (!yearRows.length ? '<div class="muted" style="font-size:12px;padding:8px 0;">Нет периодов в '+activeYear+' году</div>' : '')
     + '</div></div>';
 }
+function sumValues(o){ return Object.keys(o||{}).reduce(function(s,k){ return s+(o[k]||0); },0); }
+function renderPeriodDebts(r, st, p, dis){
+  var dts = debtsOf(st);
+  if(!dts.installments.length && !dts.cards.length) return '';
+  var paid = sumValues(r.debtPayments);
+  var instRows = (r.installments||[]).map(function(x){
+    return '<tr><td>Платёж по рассрочке '+ruDate(x.date).slice(0,5)+(x.names.length?' <span class="muted">· '+esc(x.names.join(', '))+'</span>':'')+'</td><td class="num">'+fmt(x.amount)+'</td></tr>';
+  }).join('');
+  var cardRows = dts.cards.map(function(c){
+    var before = (r.cardBefore||{})[c.id] || { debt:0, deadline:null };
+    var pay = (r.debtPayments||{})[c.id] || 0;
+    var po = dts.paymentOverrides[p.id];
+    var isOv = !!(po && po[c.id]!==undefined);
+    return '<tr><td>'+esc(c.name||'Кредитка')
+      + '<div class="small-note" style="margin:0;">долг до выплаты '+fmt(before.debt)
+      + (before.deadline ? ' · погасить до '+ruDate(before.deadline) : '')
+      + ' · после выплаты '+fmt(Math.max(0, before.debt-pay))+'</div></td>'
+      + '<td class="num" style="width:130px;"><input type="text" inputmode="numeric" class="num" data-debt-override data-period="'+p.id+'" data-card="'+c.id+'" data-auto="'+Math.round(pay)+'" value="'+Math.round(pay)+'"'+dis+'>'
+      + (isOv && !p.locked ? '<button class="ghost small" data-debt-override-clear data-period="'+p.id+'" data-card="'+c.id+'">↺ авто</button>' : '')
+      + '</td></tr>';
+  }).join('');
+  return '<hr class="sep">'
+    + '<div class="row between"><b style="font-size:13px;">Долги</b><span class="num muted">'+fmt(r.installmentsTotal + paid)+'</span></div>'
+    + (dts.installments.length
+        ? '<div style="margin-top:6px;font-size:12px;font-weight:600;">Рассрочка</div>'
+          + (instRows ? '<table>'+instRows+'</table>' : '<div class="small-note">В этот период платежей по рассрочке нет.</div>')
+        : '')
+    + (dts.cards.length
+        ? '<div style="margin-top:8px;font-size:12px;font-weight:600;">Кредитка</div>'
+          + '<table><tr><th>Карта</th><th class="num">Погашение</th></tr>'+cardRows+'</table>'
+          + '<div class="small-note">Сумма погашения считается автоматически — так, чтобы успеть до конца льготного периода; если впишете свою, план подстроится под неё.</div>'
+        : '');
+}
 var showPastPeriods = false;
 /* сверху — последняя прошедшая выплата, ниже — будущие; более ранние спрятаны под плашкой */
 function renderPeriodList(rows, plan){
@@ -1141,6 +1440,7 @@ function renderPeriodCard(r, st, plan, isPastCard){
     + (manual ? '<span class="pill">вручную</span>' : '')
     + (p.locked ? '<span class="pill warn">🔒</span>' : '')
     + (r.vacationPay ? '<span class="pill ok">отпускные '+fmt(r.vacationPay)+'</span>' : '')
+    + ((r.installmentsTotal + sumValues(r.debtPayments))>0.5 ? '<span class="pill warn">долги '+fmt(r.installmentsTotal + sumValues(r.debtPayments))+'</span>' : '')
     + (shortfall ? '<span class="pill danger">дефицит</span>' : '')
     + '<span style="margin-left:auto;" class="num">'+fmt(r.totalIncome)+'</span>'
     + '<span class="muted num">− '+fmt(r.expenses)+'</span>'
@@ -1200,14 +1500,217 @@ function renderPeriodCard(r, st, plan, isPastCard){
     + '<div><label>Всего доход периода (с отпускными)</label><div class="num" style="padding:6px 0;font-weight:700;">'+fmt(r.totalIncome)+'</div></div>'
     + '</div>'
     + '<hr class="sep">'
-    + '<div class="row between"><b style="font-size:13px;">Расходы по категориям (переопределение периода)</b><span class="num muted">'+fmt(r.expenses)+'</span></div>'
+    + '<div class="row between"><b style="font-size:13px;">Расходы по категориям (переопределение периода)</b><span class="num muted">'+fmt(r.categoriesTotal)+'</span></div>'
     + '<table>'+catRows+'</table>'
+    + renderPeriodDebts(r, st, p, dis)
     + '<hr class="sep">'
     + '<div class="row between"><b style="font-size:13px;">Распределение по копилкам</b><button class="small ghost" data-clear-alloc-override="'+p.id+'"'+dis+'>'+(hasOverride?(p.locked?'Обнулить':'Сбросить на авто-расчёт'):'')+'</button></div>'
     + '<table><tr><th>Цель</th><th class="num">Отложено</th><th class="num">В копилке на '+p.label+'</th></tr>'+allocRows+'</table>'
     + (r.unallocated>0.5 ? '<div class="small-note">Нераспределённый остаток: '+fmt(r.unallocated)+'</div>' : '')
     + '</div>';
   return '<div class="period-card'+(open?' open':'')+(isPastCard?' past':'')+'" data-period-card="'+p.id+'">'+head+body+'</div>';
+}
+
+/* ---------- долги: общее ---------- */
+function debtsStorageWarning(){
+  if(debtsStorageOk) return '';
+  return '<div class="info-box" style="border:1px solid var(--danger);color:var(--danger);background:var(--danger-soft);margin-bottom:12px;">'
+    + '<b>Кредиты и рассрочки сейчас не сохраняются.</b> В базе нет таблиц для них: выполните один раз файл debts.sql в Supabase (SQL Editor) и обновите страницу. '
+    + 'До этого расчёты работают, но после перезагрузки введённое пропадёт.</div>';
+}
+function findCard(id){ return debtsOf(state).cards.find(function(c){ return c.id===id; }); }
+function findInst(id){ return debtsOf(state).installments.find(function(i){ return i.id===id; }); }
+
+/* ---------- кредиты ---------- */
+function renderCredits(sim){
+  var today = todayISO();
+  var cards = debtsOf(state).cards;
+  var html = cards.map(function(c){
+    var fc = cardForecast(c, sim, today);
+    var cs = fc.state;
+    var pill = cardStatusPill(fc, sim);
+    var limit = c.limit||0;
+    var pctRaw = limit>0 ? Math.round(cs.debt/limit*100) : 0;
+    var daysLeft = cs.deadline ? daysBetween(today, cs.deadline) : null;
+    var ops = (c.ops||[]).map(function(o,i){ return { o:o, i:i }; }).sort(function(a,b){
+      var ka = a.o.date || '9999-99-99', kb = b.o.date || '9999-99-99';
+      return ka<kb?-1:(ka>kb?1:a.i-b.i);
+    });
+    var opsHtml = ops.map(function(x){
+      var o = x.o, i = x.i;
+      return '<div class="item-row op-row"'+(o.date && o.date<=today ? '' : ' style="opacity:.75;"')+'>'
+        + '<input type="date" data-cop-date data-card="'+c.id+'" data-idx="'+i+'" value="'+esc(o.date)+'">'
+        + '<select data-cop-kind data-card="'+c.id+'" data-idx="'+i+'"><option value="spend"'+(o.kind!=='payment'?' selected':'')+'>Трата</option><option value="payment"'+(o.kind==='payment'?' selected':'')+'>Погашение</option></select>'
+        + '<input type="text" placeholder="Название" data-cop-note data-card="'+c.id+'" data-idx="'+i+'" value="'+esc(o.note)+'">'
+        + '<input type="text" inputmode="numeric" class="num" data-cop-amount data-card="'+c.id+'" data-idx="'+i+'" value="'+o.amount+'">'
+        + '<button class="ghost small" data-cop-del data-card="'+c.id+'" data-idx="'+i+'">✕</button>'
+        + '</div>';
+    }).join('');
+    var cycles = sim.cardCycles[c.id] || [];
+    var cyclesHtml = cycles.length
+      ? '<div class="table-scroll"><table><tr><th>Первая трата</th><th>Погасить до</th><th>Погашен</th><th></th></tr>'
+        + cycles.map(function(cy){
+            var stt = cardCycleStatus(cy, sim.planEnd);
+            return '<tr><td class="num" style="text-align:left;">'+ruDate(cy.start)+'</td><td class="num" style="text-align:left;">'+ruDate(cy.deadline)+'</td>'
+              + '<td class="num" style="text-align:left;">'+(cy.closed?ruDate(cy.closed):'—')+'</td>'
+              + '<td><span class="pill '+stt.cls+'" style="font-size:10px;">'+stt.label+'</span></td></tr>';
+          }).join('')
+        + '</table></div>'
+      : '<div class="small-note">Периодов погашения пока нет — первый начнётся с первой траты.</div>';
+    return '<div class="goal-card">'
+      + '<div class="goal-top">'
+      + '<input type="text" style="font-weight:700;font-size:15px;border:none;background:transparent;flex:1;min-width:120px;" data-card-name data-card="'+c.id+'" value="'+esc(c.name)+'" placeholder="Название карты">'
+      + '<button class="ghost small" data-card-del="'+c.id+'">✕</button>'
+      + '</div>'
+      + '<div class="grid cols-2" style="margin-top:8px;">'
+      + '<div><label>Кредитный лимит, ₽</label><input type="text" inputmode="numeric" class="num" data-card-limit data-card="'+c.id+'" value="'+(c.limit||0)+'"></div>'
+      + '<div><label>Срок погашения (льготный период), дней</label><input type="text" inputmode="numeric" class="num" data-card-grace data-card="'+c.id+'" value="'+(c.graceDays!=null?c.graceDays:60)+'"></div>'
+      + '</div>'
+      + '<hr class="sep">'
+      + '<div class="debt-stats">'
+      + '<div><div class="v">'+fmt(cs.debt)+'</div><div class="l">Долг на '+ruDate(today)+'</div></div>'
+      + '<div><div class="v">'+fmt(Math.max(0, limit-cs.debt))+'</div><div class="l">Доступно из лимита</div></div>'
+      + '<div><div class="v">'+(cs.deadline ? ruDate(cs.deadline) : '—')+'</div><div class="l">'+(cs.deadline ? 'Погасить до'+(daysLeft>=0 ? ' · осталось '+daysLeft+' '+plural(daysLeft,'день','дня','дней') : ' · срок прошёл') : 'Льготный период не идёт')+'</div></div>'
+      + '</div>'
+      + (limit>0 ? '<div class="progress'+(pctRaw>100?' over':'')+'"><i style="width:'+Math.max(0,Math.min(100,pctRaw))+'%"></i></div>' : '')
+      + '<div style="margin-top:8px;"><span class="pill '+pill.cls+'">'+pill.label+'</span></div>'
+      + (limit>0 && cs.debt>limit ? '<div class="small-note" style="color:var(--danger);">Долг больше кредитного лимита.</div>' : '')
+      + '<hr class="sep">'
+      + '<div class="row between wrap"><b style="font-size:12px;">Операции по карте</b><div class="row">'
+      + '<button class="small ghost" data-cop-add="'+c.id+'" data-kind="spend">+ трата</button>'
+      + '<button class="small ghost" data-cop-add="'+c.id+'" data-kind="payment">+ погашение</button>'
+      + '</div></div>'
+      + (opsHtml || '<div class="small-note">Операций пока нет.</div>')
+      + '<div class="small-note">«Погашение» — если вы внесли деньги на карту сами, помимо плана. Погашения из выплат план считает сам — их видно на вкладке «Доходы» в блоке «Долги».</div>'
+      + '<hr class="sep">'
+      + '<b style="font-size:12px;">Периоды погашения по плану</b>'
+      + cyclesHtml
+      + '</div>';
+  }).join('');
+  return debtsStorageWarning()
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Кредитки</h2><button class="small" data-add-card>+ кредитка</button></div>'
+    + '<div class="info-box" style="margin-bottom:12px;">Первая трата при нулевом долге запускает отсчёт срока погашения (по умолчанию 60 дней). Новые траты, пока долг не погашен, срок не сдвигают. Когда долг погашен полностью, отсчёт сбрасывается, и следующая трата начинает новый срок. '
+    + 'Из каждой выплаты после расходов и рассрочек план сначала откладывает на кредитку — равными частями до срока, а если следующих выплат не хватит, то больше. Копилки получают то, что осталось, а остаток после копилок уходит в досрочное погашение.</div>'
+    + '<div style="display:flex;flex-direction:column;gap:12px;">'
+    + (html || '<div class="muted" style="font-size:13px;">Кредиток пока нет. Нажмите «+ кредитка», чтобы добавить.</div>')
+    + '</div></div>';
+}
+
+/* ---------- рассрочки ---------- */
+var instDraft = null;
+function freshInstDraft(){ return { name:'', total:'', parts:'4', firstDate:todayISO(), interval:'2w' }; }
+function intervalLabel(v){ return v==='1m' ? 'раз в месяц' : 'раз в 2 недели'; }
+function instPreviewText(d){
+  var total = parseNum(d.total), parts = parseNum(d.parts);
+  if(!(total>0) || !(parts>=1) || !d.firstDate) return 'Укажите сумму, число частей и дату первого платежа — здесь появится график.';
+  var sch = buildInstallmentSchedule(total, parts, d.firstDate, d.interval);
+  var shown = sch.slice(0, 6).map(function(x){ return ruDate(x.date)+' — '+fmt(x.amount); }).join(', ');
+  return 'График: '+shown+(sch.length>6 ? ' и ещё '+(sch.length-6) : '')+'.';
+}
+function renderInstallments(sim){
+  var today = todayISO();
+  var insts = debtsOf(state).installments;
+  var periodsSorted = state.periods.slice().sort(function(a,b){ return a.date<b.date?-1:1; });
+  function sourceLabel(d){
+    var t = null;
+    periodsSorted.forEach(function(p){ if(p.date<=d) t = p; });
+    return t ? 'из выплаты '+ruDate(t.date) : 'вне плана';
+  }
+  var byDate = {};
+  insts.forEach(function(inst){
+    (inst.payments||[]).forEach(function(pay){
+      if(!pay.date) return;
+      var e = byDate[pay.date] || (byDate[pay.date] = { amount:0, names:[] });
+      e.amount += pay.amount||0;
+      var nm = inst.name || 'Без названия';
+      if(e.names.indexOf(nm)===-1) e.names.push(nm);
+    });
+  });
+  var dates = Object.keys(byDate).sort();
+  var future = dates.filter(function(d){ return d>today; });
+  var past = dates.filter(function(d){ return d<=today; });
+  var remaining = future.reduce(function(s,d){ return s+byDate[d].amount; },0);
+  function schedRow(d){
+    return '<tr><td class="num" style="text-align:left;">'+ruDate(d)+'</td><td>'+esc(byDate[d].names.join(', '))+'</td><td class="muted">'+sourceLabel(d)+'</td><td class="num">'+fmt(byDate[d].amount)+'</td></tr>';
+  }
+  var head = '<tr><th>Дата</th><th>Покупки</th><th>Откуда платим</th><th class="num">Сумма</th></tr>';
+  var schedule = dates.length
+    ? '<div class="debt-stats">'
+      + '<div><div class="v">'+fmt(remaining)+'</div><div class="l">Осталось заплатить после '+ruDate(today)+'</div></div>'
+      + '<div><div class="v">'+(future.length ? ruDate(future[0]) : '—')+'</div><div class="l">Ближайший платёж'+(future.length?' · '+fmt(byDate[future[0]].amount):'')+'</div></div>'
+      + '<div><div class="v">'+(future.length ? ruDate(future[future.length-1]) : '—')+'</div><div class="l">Последний платёж</div></div>'
+      + '</div>'
+      + (future.length ? '<div class="table-scroll"><table>'+head+future.map(schedRow).join('')+'</table></div>' : '<div class="small-note">Будущих платежей нет.</div>')
+      + (past.length ? '<details style="margin-top:8px;"><summary class="muted" style="cursor:pointer;font-size:12px;">Прошедшие платежи ('+past.length+')</summary><div class="table-scroll" style="opacity:.65;"><table>'+head+past.map(schedRow).join('')+'</table></div></details>' : '')
+    : '<div class="muted" style="font-size:13px;">Покупок в рассрочку пока нет.</div>';
+
+  var form;
+  if(!instDraft){
+    form = '<div class="row between wrap" style="margin-bottom:12px;"><span class="muted" style="font-size:12px;">Сумма покупки делится на части, платежи попадают в выплаты на вкладке «Доходы».</span>'
+      + '<button class="small" data-open-add-inst>+ покупка в рассрочку</button></div>';
+  } else {
+    var d = instDraft;
+    form = '<div class="cat-card" style="margin-bottom:14px;">'
+      + '<div class="row between" style="margin-bottom:8px;"><b>Новая покупка</b><button class="ghost small" data-cancel-add-inst>✕</button></div>'
+      + '<div class="grid cols-3">'
+      + '<div><label>Что купили</label><input type="text" data-inst-new="name" value="'+esc(d.name)+'" placeholder="Например, наушники"></div>'
+      + '<div><label>Сумма покупки, ₽</label><input type="text" inputmode="numeric" class="num" data-inst-new="total" value="'+esc(d.total)+'"></div>'
+      + '<div><label>На сколько частей</label><input type="text" inputmode="numeric" class="num" data-inst-new="parts" value="'+esc(d.parts)+'"></div>'
+      + '</div>'
+      + '<div class="grid cols-2" style="margin-top:10px;">'
+      + '<div><label>Первый платёж</label><input type="date" data-inst-new="firstDate" value="'+esc(d.firstDate)+'"></div>'
+      + '<div><label>Как часто</label><select data-inst-new="interval">'
+      + '<option value="2w"'+(d.interval==='2w'?' selected':'')+'>Раз в 2 недели (как Сплит)</option>'
+      + '<option value="1m"'+(d.interval==='1m'?' selected':'')+'>Раз в месяц</option></select></div>'
+      + '</div>'
+      + '<div class="small-note" id="inst-preview">'+esc(instPreviewText(d))+'</div>'
+      + '<div id="inst-error" class="small-note" style="color:var(--danger);"></div>'
+      + '<div class="row" style="gap:8px;margin-top:10px;"><button class="primary small" data-submit-add-inst>Добавить покупку</button><button class="small ghost" data-cancel-add-inst>Отмена</button></div>'
+      + '</div>';
+  }
+
+  var cardsHtml = insts.map(function(inst){
+    var pays = inst.payments||[];
+    var paidCnt = pays.filter(function(x){ return x.date && x.date<=today; }).length;
+    var left = pays.filter(function(x){ return !x.date || x.date>today; }).reduce(function(s,x){ return s+(x.amount||0); },0);
+    var sumPays = pays.reduce(function(s,x){ return s+(x.amount||0); },0);
+    var rows = pays.map(function(x,i){
+      var isPaid = x.date && x.date<=today;
+      return '<div class="item-row ip-row"'+(isPaid?' style="opacity:.6;"':'')+'>'
+        + '<input type="date" data-ip-date data-inst="'+inst.id+'" data-idx="'+i+'" value="'+esc(x.date)+'">'
+        + '<input type="text" inputmode="numeric" class="num" data-ip-amount data-inst="'+inst.id+'" data-idx="'+i+'" value="'+(x.amount||0)+'">'
+        + '<span class="pill'+(isPaid?' ok':'')+'" style="font-size:10px;">'+(isPaid?'оплачен':sourceLabel(x.date||'9999-99-99'))+'</span>'
+        + '<button class="ghost small" data-ip-del data-inst="'+inst.id+'" data-idx="'+i+'">✕</button>'
+        + '</div>';
+    }).join('');
+    return '<div class="cat-card">'
+      + '<div class="row between">'
+      + '<input type="text" style="font-weight:700;font-size:14px;border:none;background:transparent;padding:2px 0;" data-inst-name data-inst="'+inst.id+'" value="'+esc(inst.name)+'" placeholder="Название покупки">'
+      + '<button class="ghost small" data-inst-del="'+inst.id+'">✕</button></div>'
+      + '<div class="small-note" style="margin-bottom:8px;">Оплачено '+paidCnt+' из '+pays.length+' · осталось '+fmt(left)+'</div>'
+      + '<div class="grid cols-4">'
+      + '<div><label>Сумма</label><input type="text" inputmode="numeric" class="num" data-inst-param="total" data-inst="'+inst.id+'" value="'+inst.total+'"></div>'
+      + '<div><label>Частей</label><input type="text" inputmode="numeric" class="num" data-inst-param="parts" data-inst="'+inst.id+'" value="'+inst.parts+'"></div>'
+      + '<div><label>Первый платёж</label><input type="date" data-inst-param="firstDate" data-inst="'+inst.id+'" value="'+esc(inst.firstDate)+'"></div>'
+      + '<div><label>Как часто</label><select data-inst-param="interval" data-inst="'+inst.id+'">'
+      + '<option value="2w"'+(inst.interval!=='1m'?' selected':'')+'>Раз в 2 недели</option>'
+      + '<option value="1m"'+(inst.interval==='1m'?' selected':'')+'>Раз в месяц</option></select></div>'
+      + '</div>'
+      + '<div class="small-note" style="margin-bottom:6px;">При изменении этих полей график пересоздаётся. Отдельные платежи ниже можно поправить вручную.</div>'
+      + rows
+      + (Math.round(sumPays)!==Math.round(inst.total) ? '<div class="small-note" style="color:var(--warn);">Сумма платежей '+fmt(sumPays)+' не совпадает с суммой покупки '+fmt(inst.total)+'.</div>' : '')
+      + '<button class="small ghost" data-ip-add="'+inst.id+'">+ платёж</button>'
+      + '</div>';
+  }).join('');
+
+  return debtsStorageWarning()
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Рассрочки</h2></div>'
+    + form
+    + '<div class="info-box" style="margin-bottom:12px;">Платёж оплачивается из последней выплаты до его даты: при выплатах 05.05 и 20.05 платёж 07.05 попадёт в выплату 05.05. Платежи разных покупок в одну дату складываются. В выплате они списываются сразу после расходов по категориям, до кредитки и копилок.</div>'
+    + '<h3 style="font-size:14px;margin:4px 0 8px;">Общий график платежей</h3>'
+    + schedule
+    + (insts.length ? '<h3 style="font-size:14px;margin:16px 0 8px;">Покупки</h3><div class="grid cols-2">'+cardsHtml+'</div>' : '')
+    + '</div>';
 }
 
 /* ---------- categories ---------- */
@@ -1274,12 +1777,13 @@ function renderGoals(sim){
     var wdHtml = '', inHtml = '';
     (g.withdrawals||[]).forEach(function(w,wi){
       var incoming = (w.amount||0) < 0;
-      var row = '<div class="item-row">'
+      var wName = (w.note!=null && w.note!=='') ? w.note : (w.label||'');
+      var row = '<div class="item-row wd-row">'
         + '<input type="date" data-wd-date data-goal="'+g.id+'" data-idx="'+wi+'" value="'+w.date+'">'
+        + '<input type="text" placeholder="Название" data-wd-note data-goal="'+g.id+'" data-idx="'+wi+'" value="'+esc(wName)+'">'
         + '<input type="text" inputmode="numeric" class="num" '+(incoming?'data-wd-in-amount':'data-wd-amount')+' data-goal="'+g.id+'" data-idx="'+wi+'" value="'+Math.abs(w.amount||0)+'">'
         + '<button class="ghost small" data-wd-del data-goal="'+g.id+'" data-idx="'+wi+'">✕</button>'
-        + '</div>'
-        + (w.note ? '<div class="small-note" style="margin:-4px 0 6px;">'+esc(w.note)+'</div>' : '');
+        + '</div>';
       if(incoming) inHtml += row; else wdHtml += row;
     });
     var canRedistribute = g.completed && potBalance >= 1;
@@ -1562,6 +2066,7 @@ function attachEvents(sim){
         if(row){
           if(!state.savingsOverrides[pid]) state.savingsOverrides[pid]={};
           Object.keys(row.allocations).forEach(function(gid){ state.savingsOverrides[pid][gid]=Math.round(row.allocations[gid]); });
+          snapshotDebtPayments(state, pid, row);
         }
         p.locked = true;
         scheduleSave();
@@ -1693,6 +2198,106 @@ function attachEvents(sim){
   root.querySelectorAll('[data-redist-apply]').forEach(function(b){ b.addEventListener('click', function(){
     applyRedistribution(); scheduleSave();
   }); });
+  /* ---- долги в карточке периода ---- */
+  bindChange('[data-debt-override]', function(el){
+    var pid = el.dataset.period, cid = el.dataset.card, po = state.debts.paymentOverrides;
+    var val = Math.max(0, parseNum(el.value));
+    var hasOv = !!(po[pid] && po[pid][cid]!==undefined);
+    if(!hasOv && String(val)===el.getAttribute('data-auto')) return;
+    if(!po[pid]) po[pid] = {};
+    po[pid][cid] = val;
+  });
+  root.querySelectorAll('[data-debt-override-clear]').forEach(function(b){ b.addEventListener('click', function(){
+    var pid = b.dataset.period, cid = b.dataset.card, po = state.debts.paymentOverrides;
+    if(po[pid]){ delete po[pid][cid]; if(!Object.keys(po[pid]).length) delete po[pid]; }
+    scheduleSave();
+  }); });
+
+  /* ---- кредитки ---- */
+  root.querySelectorAll('[data-add-card]').forEach(function(b){ b.addEventListener('click', function(){
+    state.debts.cards.push({ id:uid('card'), name:'Кредитка', limit:100000, graceDays:60, ops:[] });
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-card-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var id = b.getAttribute('data-card-del'), c = findCard(id);
+    if(!c) return;
+    if(!confirm('Удалить кредитку «'+(c.name||'Кредитка')+'» со всеми операциями и погашениями?')) return;
+    state.debts.cards = state.debts.cards.filter(function(x){ return x.id!==id; });
+    var po = state.debts.paymentOverrides;
+    Object.keys(po).forEach(function(pid){ delete po[pid][id]; if(!Object.keys(po[pid]).length) delete po[pid]; });
+    scheduleSave();
+  }); });
+  bindChange('[data-card-name]', function(el){ var c=findCard(el.dataset.card); if(c) c.name=el.value; });
+  bindChange('[data-card-limit]', function(el){ var c=findCard(el.dataset.card); if(c) c.limit=Math.max(0,parseNum(el.value)); });
+  bindChange('[data-card-grace]', function(el){ var c=findCard(el.dataset.card); if(c) c.graceDays=Math.max(1,parseNum(el.value)); });
+  root.querySelectorAll('[data-cop-add]').forEach(function(b){ b.addEventListener('click', function(){
+    var c = findCard(b.getAttribute('data-cop-add'));
+    if(c){ c.ops.push({ id:uid('op'), date:todayISO(), amount:0, kind:b.getAttribute('data-kind')==='payment'?'payment':'spend', note:'' }); scheduleSave(); }
+  }); });
+  root.querySelectorAll('[data-cop-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var c = findCard(b.dataset.card); if(c){ c.ops.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
+  }); });
+  function copAt(el){ var c=findCard(el.dataset.card); return c ? c.ops[parseInt(el.dataset.idx,10)] : null; }
+  bindChange('[data-cop-date]', function(el){ var o=copAt(el); if(o && el.value) o.date=el.value; });
+  bindChange('[data-cop-kind]', function(el){ var o=copAt(el); if(o) o.kind = el.value==='payment'?'payment':'spend'; });
+  bindChange('[data-cop-note]', function(el){ var o=copAt(el); if(o) o.note=el.value; });
+  bindChange('[data-cop-amount]', function(el){ var o=copAt(el); if(o) o.amount=Math.abs(parseNum(el.value)); });
+
+  /* ---- рассрочки ---- */
+  root.querySelectorAll('[data-open-add-inst]').forEach(function(b){ b.addEventListener('click', function(){ instDraft = freshInstDraft(); render(); }); });
+  root.querySelectorAll('[data-cancel-add-inst]').forEach(function(b){ b.addEventListener('click', function(){ instDraft = null; render(); }); });
+  root.querySelectorAll('[data-inst-new]').forEach(function(el){
+    var onEdit = function(){
+      if(!instDraft) return;
+      instDraft[el.getAttribute('data-inst-new')] = el.value;
+      var pv = document.getElementById('inst-preview');
+      if(pv) pv.textContent = instPreviewText(instDraft);
+    };
+    el.addEventListener('input', onEdit);
+    el.addEventListener('change', onEdit);
+  });
+  root.querySelectorAll('[data-submit-add-inst]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!instDraft) return;
+    var d = instDraft, total = parseNum(d.total), parts = parseNum(d.parts);
+    var err = !(total>0) ? 'Укажите сумму покупки.' : !(parts>=1) ? 'Укажите, на сколько частей делится покупка.' : !d.firstDate ? 'Укажите дату первого платежа.' : '';
+    if(err){ var e = document.getElementById('inst-error'); if(e) e.textContent = err; return; }
+    state.debts.installments.push({ id:uid('inst'), name:(d.name||'').trim() || 'Покупка', total:total, parts:parts,
+      interval:d.interval==='1m'?'1m':'2w', firstDate:d.firstDate, payments: buildInstallmentSchedule(total, parts, d.firstDate, d.interval) });
+    instDraft = null;
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-inst-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var id = b.getAttribute('data-inst-del'), inst = findInst(id);
+    if(!inst) return;
+    if(!confirm('Удалить рассрочку «'+(inst.name||'Покупка')+'» и все её платежи?')) return;
+    state.debts.installments = state.debts.installments.filter(function(x){ return x.id!==id; });
+    scheduleSave();
+  }); });
+  bindChange('[data-inst-name]', function(el){ var i=findInst(el.dataset.inst); if(i) i.name=el.value; });
+  bindChange('[data-inst-param]', function(el){
+    var i = findInst(el.dataset.inst); if(!i) return;
+    var key = el.getAttribute('data-inst-param'), before = JSON.stringify([i.total,i.parts,i.firstDate,i.interval]);
+    if(key==='total') i.total = Math.max(0, parseNum(el.value));
+    else if(key==='parts') i.parts = Math.max(1, parseNum(el.value));
+    else if(key==='firstDate'){ if(el.value) i.firstDate = el.value; }
+    else if(key==='interval') i.interval = el.value==='1m'?'1m':'2w';
+    if(before!==JSON.stringify([i.total,i.parts,i.firstDate,i.interval]) && i.firstDate){
+      i.payments = buildInstallmentSchedule(i.total, i.parts, i.firstDate, i.interval);
+    }
+  });
+  root.querySelectorAll('[data-ip-add]').forEach(function(b){ b.addEventListener('click', function(){
+    var i = findInst(b.getAttribute('data-ip-add')); if(!i) return;
+    var last = i.payments.length ? i.payments[i.payments.length-1].date : '';
+    var date = last ? (i.interval==='1m' ? addMonthsISO(last,1) : addDaysISO(last,14)) : (i.firstDate || todayISO());
+    i.payments.push({ id:uid('ip'), date:date, amount:0 });
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-ip-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var i = findInst(b.dataset.inst); if(i){ i.payments.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
+  }); });
+  bindChange('[data-ip-date]', function(el){ var i=findInst(el.dataset.inst); if(i && el.value) i.payments[parseInt(el.dataset.idx,10)].date=el.value; });
+  bindChange('[data-ip-amount]', function(el){ var i=findInst(el.dataset.inst); if(i) i.payments[parseInt(el.dataset.idx,10)].amount=Math.max(0,parseNum(el.value)); });
+
   root.querySelectorAll('[data-toggle-past]').forEach(function(b){ b.addEventListener('click', function(){
     showPastPeriods = !showPastPeriods; render();
   }); });
@@ -1704,6 +2309,11 @@ function attachEvents(sim){
   }); });
   bindChange('[data-wd-date]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.withdrawals[parseInt(el.dataset.idx,10)].date=el.value; });
   bindChange('[data-wd-amount]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.withdrawals[parseInt(el.dataset.idx,10)].amount=Math.abs(parseNum(el.value)); });
+  bindChange('[data-wd-note]', function(el){
+    var g=findGoal(el.dataset.goal); if(!g) return;
+    var w = g.withdrawals[parseInt(el.dataset.idx,10)];
+    if(w){ w.note = el.value; w.label = el.value; }
+  });
   bindChange('[data-wd-in-amount]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.withdrawals[parseInt(el.dataset.idx,10)].amount=-Math.abs(parseNum(el.value)); });
 
   /* goal subgoals (milestones) */
