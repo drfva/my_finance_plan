@@ -503,20 +503,60 @@ function planYearsLabel(st){
   if(!ys.length) return '';
   return ys.length===1 ? String(ys[0]) : ys[0]+'–'+ys[ys.length-1];
 }
+/* стандартные нерабочие праздники РФ (без переносов выходных) */
+function standardHolidays(year){
+  var md = ['01-01','01-02','01-03','01-04','01-05','01-06','01-07','01-08','02-23','03-08','05-01','05-09','06-12','11-04'];
+  return md.map(function(x){ return year+'-'+x; });
+}
+function ensureStandardHolidays(st, year){
+  var set = new Set(st.meta.holidays), added = 0;
+  /* январь следующего года тоже нужен: зарплата за декабрь выплачивается 5 января */
+  standardHolidays(year).concat(standardHolidays(year+1).slice(0,8)).forEach(function(d){
+    if(!set.has(d)){ st.meta.holidays.push(d); set.add(d); added++; }
+  });
+  return added;
+}
+/* дата выплаты: если целевое число — выходной или праздник, берём ближайший рабочий день раньше */
+function payDateOnOrBefore(targetISO, st){
+  var holidaySet = new Set(st.meta.holidays), d = targetISO;
+  for(var i=0;i<31;i++){
+    var y=parseInt(d.slice(0,4),10), m=parseInt(d.slice(5,7),10), dd=parseInt(d.slice(8,10),10);
+    if(isWorkingDay(y,m,dd,holidaySet)) return d;
+    d = addDaysISO(d,-1);
+  }
+  return targetISO;
+}
+/* Новый год плана: аванс 20-го (за 1–15 число), зарплата 5-го следующего месяца (за 16-е – конец месяца).
+   Сумма на руки — по окладу, отработанным дням (без отпусков и больничных) и НДФЛ нарастающим итогом
+   за календарный год выплаты. Периоды сразу добавляются в план. */
 function generateYearPeriods(year, st){
+  ensureStandardHolidays(st, year);
   var out=[];
   for(var m=1;m<=12;m++){
-    var avansDate = isoDate(year,m,20);
-    var avansP = {id:uid('p'), date:avansDate, label:pad2(20)+'.'+pad2(m), type:'avans', half:'first', monthRef:{y:year,m:m}, calc:'auto', incomeActual:0, assignedVacations:[], locked:false};
-    avansP.incomeActual = calcPeriodIncomeFormula(avansP, st) || 0;
-    out.push(avansP);
+    var avansDate = payDateOnOrBefore(isoDate(year,m,20), st);
+    out.push({id:uid('p'), date:avansDate, label:periodLabelFromDate(avansDate), type:'avans', half:'first', monthRef:{y:year,m:m}, calc:'auto', incomeActual:0, assignedVacations:[], locked:false});
     var zpY = m===12?year+1:year, zpM = m===12?1:m+1;
-    var zpDate = isoDate(zpY,zpM,5);
-    var zpP = {id:uid('p'), date:zpDate, label:pad2(5)+'.'+pad2(zpM), type:'zp', half:'second', monthRef:{y:year,m:m}, calc:'auto', incomeActual:0, assignedVacations:[], locked:false};
-    zpP.incomeActual = calcPeriodIncomeFormula(zpP, st) || 0;
-    out.push(zpP);
+    var zpDate = payDateOnOrBefore(isoDate(zpY,zpM,5), st);
+    out.push({id:uid('p'), date:zpDate, label:periodLabelFromDate(zpDate), type:'zp', half:'second', monthRef:{y:year,m:m}, calc:'auto', incomeActual:0, assignedVacations:[], locked:false});
   }
-  out.sort(function(a,b){return a.date<b.date?-1:1;});
+  /* отпускные, которые не правили вручную (равны формуле), пересчитаем, когда появятся доходы нового года */
+  var formulaBefore = {};
+  (st.vacations||[]).forEach(function(v){ formulaBefore[v.id] = calcVacationPayFormula(v, st); });
+  /* отпуска нового года привязываются к выплатам до расчёта: отпускные входят в годовой доход для НДФЛ */
+  withVacationRebind(st, function(){
+    st.periods = st.periods.concat(out);
+    st.periods.sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); });
+  });
+  var fill = {};
+  out.forEach(function(p){ fill[p.id] = true; });
+  computeSalaryNetPlan(st, fill);
+  var yearStart = isoDate(year,1,1), recalculated = false;
+  (st.vacations||[]).forEach(function(v){
+    if(!v.start || v.start < yearStart || formulaBefore[v.id]==null || v.manualPay!==formulaBefore[v.id]) return;
+    var f = calcVacationPayFormula(v, st);
+    if(f!=null && f!==v.manualPay){ v.manualPay = f; recalculated = true; }
+  });
+  if(recalculated) computeSalaryNetPlan(st, fill);
   return out;
 }
 /* ручные периоды: calc==='manual' (доход вводится вручную, не по окладу) */
@@ -546,8 +586,10 @@ function addManualPeriod(draft, st){
        иначе авто-расчёт задним числом «положил» бы его остаток в цели */
     locked: draft.date < todayISO() };
   if(draft.note && draft.note.trim()) p.note = draft.note.trim();
-  st.periods.push(p);
-  st.periods.sort(function(a,b){ return a.date<b.date?-1:1; });
+  withVacationRebind(st, function(){
+    st.periods.push(p);
+    st.periods.sort(function(a,b){ return a.date<b.date?-1:1; });
+  });
   st.ui.selectedYear = y;
   st.ui.openPeriods[p.id] = true;
   return null;
@@ -578,14 +620,48 @@ function okladForDate(dateISO, st){
   for(var i=0;i<hist.length;i++){ if(hist[i].effectiveFrom<=dateISO) val=hist[i].amount; }
   return val;
 }
+function sortedOkladHistory(st){
+  return st.oklad.history.slice().sort(function(a,b){ return a.effectiveFrom<b.effectiveFrom?-1:(a.effectiveFrom>b.effectiveFrom?1:0); });
+}
+/* последняя запись оклада — по дате начала действия, а не по порядку в списке */
+function latestOkladEntry(st){
+  var h = sortedOkladHistory(st);
+  return h.length ? h[h.length-1] : null;
+}
+/* день отсутствия: попадает в отпуск или больничный */
+function absenceRanges(st){
+  var out = [];
+  (st.vacations||[]).forEach(function(v){ if(v.start && v.end) out.push([v.start, v.end]); });
+  (st.sickLeaves||[]).forEach(function(v){ if(v.start && v.end) out.push([v.start, v.end]); });
+  return out;
+}
+/* Отработанные дни и gross периода:
+   рабочие дни половины месяца (аванс — 1–15, зарплата — 16–конец) без отпусков и больничных;
+   каждый отработанный день стоит «оклад, действующий в этот день ÷ рабочих дней месяца». */
+function periodWorkInfo(period, st, ranges){
+  var y=period.monthRef.y, m=period.monthRef.m;
+  var holidaySet = new Set(st.meta.holidays);
+  var monthWD = workingDaysInMonth(y,m,st);
+  if(monthWD<=0) return null;
+  ranges = ranges || absenceRanges(st);
+  var dim = daysInMonth(y,m);
+  var start = period.half==='first'?1:16, end = period.half==='first'?15:dim;
+  var halfWD = 0, worked = 0, gross = 0;
+  for(var d=start; d<=end; d++){
+    if(!isWorkingDay(y,m,d,holidaySet)) continue;
+    halfWD++;
+    var iso = isoDate(y,m,d);
+    var absent = ranges.some(function(r){ return iso>=r[0] && iso<=r[1]; });
+    if(absent) continue;
+    worked++;
+    gross += okladForDate(iso, st)/monthWD;
+  }
+  return { monthWD:monthWD, halfWD:halfWD, worked:worked, gross:Math.round(gross) };
+}
 function calcPeriodIncomeFormula(period, st){
   if(period.calc==='manual') return null;
-  var y=period.monthRef.y, m=period.monthRef.m;
-  var totalWD = workingDaysInMonth(y,m,st);
-  if(totalWD<=0) return null;
-  var halfWD = workingDaysInHalf(y,m,period.half,st);
-  var oklad = okladForDate(period.date, st);
-  return Math.round(oklad*halfWD/totalWD);
+  var w = periodWorkInfo(period, st);
+  return w ? w.gross : null;
 }
 
 /* ============ НДФЛ (прогрессивная шкала, оклад в настройках вводится gross) ============ */
@@ -614,17 +690,45 @@ function estimateMonthlyNet(grossMonthly, brackets){
   var annualTax = ndflOwedOnCumulative(grossMonthly*12, brackets);
   return Math.round(grossMonthly - annualTax/12);
 }
-function computeSalaryNetPlan(st){
+/* gross, который даёт указанную сумму «на руки» при уже набранном за год доходе */
+function grossFromNet(net, cumBefore, brackets){
+  if(!(net>0)) return 0;
+  var taxBase = ndflOwedOnCumulative(cumBefore, brackets);
+  function netOf(g){ return g - (ndflOwedOnCumulative(cumBefore+g, brackets) - taxBase); }
+  var lo = net, hi = net*2 + 1;
+  for(var k=0; k<20 && netOf(hi)<net; k++) hi *= 2;
+  for(var i=0;i<60;i++){
+    var mid = (lo+hi)/2;
+    if(netOf(mid) < net) lo = mid; else hi = mid;
+  }
+  return hi;
+}
+/* План «на руки» по авто-периодам. НДФЛ считается нарастающим итогом за календарный год даты
+   выплаты: в годовой доход по порядку дат входят все выплаты этого года — зарплата (фактическая
+   сумма «на руки», пересчитанная в gross) и отпускные.
+   fillIds: для этих периодов расчётная сумма «на руки» сразу записывается в «Доход на руки» (новый год). */
+function computeSalaryNetPlan(st, fillIds){
   var periods = st.periods.slice().sort(function(a,b){ return a.date<b.date?-1:1; });
+  var br = st.ndfl.brackets, ranges = absenceRanges(st);
   var cum = 0, cumYear = null, byPeriod = {};
   periods.forEach(function(p){
     var payYear = p.date.slice(0,4);
     if(payYear!==cumYear){ cum = 0; cumYear = payYear; }
-    var gross = calcPeriodIncomeFormula(p, st);
-    if(gross==null){ byPeriod[p.id]=null; return; }
-    var r = netFromGross(gross, cum, st.ndfl.brackets);
-    cum = r.cumGrossAfter;
+    var w = isManualPeriod(p) ? null : periodWorkInfo(p, st, ranges);
+    var r = null;
+    if(w){
+      r = netFromGross(w.gross, cum, br);
+      r.worked = w.worked; r.halfWD = w.halfWD; r.monthWD = w.monthWD;
+    }
     byPeriod[p.id] = r;
+    if(r && fillIds && fillIds[p.id]){
+      p.incomeActual = r.net;
+      cum += r.gross;
+    } else {
+      cum += grossFromNet(p.incomeActual||0, cum, br);
+    }
+    var vac = vacationPayForPeriod(p, st);
+    if(vac>0) cum += grossFromNet(vac, cum, br);
   });
   return byPeriod;
 }
@@ -686,6 +790,52 @@ function calcVacationPayFormula(vac, st){
   var avg = avgDailyEarnings(vac.start, st);
   var days = calendarDaysInclusive(vac.start, vac.end);
   return Math.round(avg*days);
+}
+/* отпускные выплачиваются в последнюю выплату раньше даты начала отпуска:
+   отпуск с 10.06 → выплата 05.06 */
+function vacationTargetPeriod(vac, st){
+  if(!vac || !vac.start) return null;
+  var t = null;
+  st.periods.forEach(function(p){ if(p.date < vac.start && (!t || p.date > t.date)) t = p; });
+  return t;
+}
+function vacationAssignments(vacId, st){
+  var out = [];
+  st.periods.forEach(function(p){ (p.assignedVacations||[]).forEach(function(a){ if(a.id===vacId) out.push({ period:p, share:(a.share!=null?a.share:1) }); }); });
+  return out;
+}
+/* отпуск без привязки получает привязку по правилу; уже привязанные не трогаем */
+function autoAssignVacations(st){
+  var changed = false;
+  (st.vacations||[]).forEach(function(v){
+    if(vacationAssignments(v.id, st).length) return;
+    var t = vacationTargetPeriod(v, st);
+    if(!t) return;
+    t.assignedVacations = (t.assignedVacations||[]).concat([{ id:v.id, share:1 }]);
+    changed = true;
+  });
+  return changed;
+}
+/* отпуска, чьи отпускные сейчас стоят ровно там, где требует правило */
+function standardVacationIds(st){
+  var ids = [];
+  (st.vacations||[]).forEach(function(v){
+    var asg = vacationAssignments(v.id, st), t = vacationTargetPeriod(v, st);
+    if(t && asg.length===1 && asg[0].period.id===t.id && asg[0].share===1) ids.push(v.id);
+  });
+  return ids;
+}
+/* изменение списка или дат выплат: отпуска, привязанные по правилу, следуют за правилом;
+   привязанные иначе (вручную распределённые доли) не трогаем */
+function withVacationRebind(st, fn){
+  var ids = standardVacationIds(st);
+  var res = fn();
+  ids.forEach(function(id){ unassignVacation(st, id); });
+  autoAssignVacations(st);
+  return res;
+}
+function unassignVacation(st, vacId){
+  st.periods.forEach(function(p){ p.assignedVacations = (p.assignedVacations||[]).filter(function(a){ return a.id!==vacId; }); });
 }
 function vacationPayForPeriod(period, st){
   var total=0;
@@ -764,7 +914,7 @@ function milestoneStatusPill(m, achievedDate){
     if(!m.deadline) return { label:'Прогноз: к '+ruDate(achievedDate), cls:'ok' };
     return achievedDate<=m.deadline ? { label:'В графике (к '+ruDate(achievedDate)+')', cls:'ok' } : { label:'Позже срока (к '+ruDate(achievedDate)+')', cls:'warn' };
   }
-  if(!m.deadline) return { label:'Не достигается в 2027 году', cls:'danger' };
+  if(!m.deadline) return { label:'Не достигается в пределах плана', cls:'danger' };
   return { label:'Не достигается к '+ruDate(m.deadline), cls:'danger' };
 }
 function goalOverallStatus(g, sim){
@@ -1153,6 +1303,13 @@ function sortSubgoalsByDeadline(st){
   });
   return changed;
 }
+function sortOkladHistory(st){
+  var sorted = sortedOkladHistory(st);
+  for(var i=0;i<sorted.length;i++){
+    if(sorted[i]!==st.oklad.history[i]){ st.oklad.history = sorted; return true; }
+  }
+  return false;
+}
 function sortInstallmentPayments(st){
   var changed = false;
   debtsOf(st).installments.forEach(function(inst){
@@ -1288,6 +1445,8 @@ function render(){
   var changed = sortSubgoalsByDeadline(state);
   changed = syncIncome2026(state) || changed;
   changed = sortInstallmentPayments(state) || changed;
+  changed = sortOkladHistory(state) || changed;
+  changed = autoAssignVacations(state) || changed;
   changed = ensurePastPeriodsLocked(state) || changed;
   if(changed){
     clearTimeout(publishTimer); saveStatus='pending'; publishTimer=setTimeout(doPublish,500);
@@ -1441,6 +1600,24 @@ function renderPeriods(sim){
     + (!yearRows.length ? '<div class="muted" style="font-size:12px;padding:8px 0;">Нет периодов в '+activeYear+' году</div>' : '')
     + '</div></div>';
 }
+/* Свободный остаток периода после расходов, рассрочек, погашения кредиток и сумм в копилки.
+   Проверяется для любых периодов, в т.ч. добавленных вручную и зафиксированных: если в копилки
+   и на долги вписано больше, чем осталось после расходов, остаток уходит в минус и выделяется красным. */
+function renderRemainderLine(r){
+  var left = Math.round(r.unallocated);
+  var toGoals = Math.round(sumValues(r.allocations)), toDebts = Math.round(sumValues(r.debtPayments));
+  var afterExpenses = Math.round(r.free);
+  if(left < 0){
+    return '<div class="small-note" style="color:var(--danger);font-weight:700;">Свободный остаток: −'+fmt(-left)+'</div>'
+      + (toGoals + toDebts <= 0
+          ? '<div class="small-note" style="color:var(--danger);margin-top:2px;">Расходы превышают доход периода — распределять в копилки нечего.</div>'
+          : '<div class="small-note" style="color:var(--danger);margin-top:2px;">После расходов осталось '+fmt(afterExpenses)
+      + ', а распределено '+fmt(toGoals + toDebts)
+      + (toDebts ? ' (в копилки '+fmt(toGoals)+', на долги '+fmt(toDebts)+')' : ' в копилки')
+      + ' — уменьшите суммы, чтобы остаток был не меньше нуля.</div>');
+  }
+  return '<div class="small-note">Свободный остаток: <b class="num">'+fmt(left)+'</b></div>';
+}
 function sumValues(o){ return Object.keys(o||{}).reduce(function(s,k){ return s+(o[k]||0); },0); }
 function renderPeriodDebts(r, st, p, dis){
   var dts = debtsOf(st);
@@ -1513,6 +1690,7 @@ function renderPeriodCard(r, st, plan, isPastCard){
     + (r.vacationPay ? '<span class="pill ok">отпускные '+fmt(r.vacationPay)+'</span>' : '')
     + ((r.installmentsTotal + sumValues(r.debtPayments))>0.5 ? '<span class="pill warn">долги '+fmt(r.installmentsTotal + sumValues(r.debtPayments))+'</span>' : '')
     + (shortfall ? '<span class="pill danger">дефицит</span>' : '')
+    + (!shortfall && r.unallocated < -0.5 ? '<span class="pill danger">не хватает '+fmt(-r.unallocated)+'</span>' : '')
     + '<span style="margin-left:auto;" class="num">'+fmt(r.totalIncome)+'</span>'
     + '<span class="muted num">− '+fmt(r.expenses)+'</span>'
     + '<span class="num" style="font-weight:700;color:'+(r.free<0?'var(--danger)':'var(--accent-ink)')+';">'+fmtSigned(r.free)+'</span>'
@@ -1562,12 +1740,19 @@ function renderPeriodCard(r, st, plan, isPastCard){
     + '<div><label>Дата выплаты</label><input type="date" data-period-date data-period="'+p.id+'" value="'+p.date+'"'+dis+'>'
     + '<div class="small-note">Название периода в списке обновится вместе с датой. Условный месяц периода (для расчёта аванс/зарплата) при этом не меняется.</div></div>'
     + '<div><label>Отпускные в этом периоде</label><div class="num" style="padding:6px 0;">'+fmt(r.vacationPay)+'</div>'
-    + '<div class="small-note">'+(p.assignedVacations&&p.assignedVacations.length ? 'из вкладки «Настройки → Отпуска»' : 'нет назначенных отпусков')+'</div></div>'
+    + '<div class="small-note">'+(p.assignedVacations&&p.assignedVacations.length
+        ? esc(p.assignedVacations.map(function(a){ var v = findVac(a.id); return v ? (v.note||'Отпуск')+' '+ruDate(v.start).slice(0,5)+'–'+ruDate(v.end).slice(0,5)+(a.share!=null && a.share!==1 ? ' ('+Math.round(a.share*100)+'%)' : '') : ''; }).filter(Boolean).join('; '))
+          + ' · сумма меняется в «Настройки → Отпуска», здесь только для просмотра'
+        : 'нет отпусков с выплатой в этом периоде')+'</div></div>'
     + '</div>'
     + manualRow
     + '<div class="grid cols-2" style="margin-top:10px;">'
     + '<div><label>Доход на руки (факт)</label><input type="text" inputmode="numeric" data-income-actual data-period="'+p.id+'" value="'+p.incomeActual+'"'+dis+'>'
-    + (pd!=null ? '<div class="small-note">по формуле: оклад gross '+fmt(pd.gross)+' − НДФЛ '+fmt(pd.tax)+' ≈ на руки '+fmt(pd.net)+'. Указывайте здесь зарплату «на руки» без отпускных — они учитываются отдельно.</div>' : '<div class="small-note">вводится вручную, по окладу не рассчитывается</div>') + '</div>'
+    + (pd!=null
+        ? '<div class="small-note">по формуле: отработано '+pd.worked+' из '+pd.halfWD+' раб. дн. (в месяце '+pd.monthWD+') · gross '+fmt(pd.gross)+' − НДФЛ '+fmt(pd.tax)+' ≈ на руки <b class="num">'+fmt(pd.net)+'</b>'
+          + (!p.locked && Math.abs(pd.net-(p.incomeActual||0))>1 ? ' <button class="small ghost" data-income-apply-formula="'+p.id+'">Подставить</button>' : '')
+          + '. Указывайте здесь зарплату «на руки» без отпускных — они учитываются отдельно.</div>'
+        : '<div class="small-note">вводится вручную, по окладу не рассчитывается</div>') + '</div>'
     + '<div><label>Всего доход периода (с отпускными)</label><div class="num" style="padding:6px 0;font-weight:700;">'+fmt(r.totalIncome)+'</div></div>'
     + '</div>'
     + '<hr class="sep">'
@@ -1577,7 +1762,7 @@ function renderPeriodCard(r, st, plan, isPastCard){
     + '<hr class="sep">'
     + '<div class="row between"><b style="font-size:13px;">Распределение по копилкам</b><button class="small ghost" data-clear-alloc-override="'+p.id+'"'+dis+'>'+(hasOverride?(p.locked?'Обнулить':'Сбросить на авто-расчёт'):'')+'</button></div>'
     + '<table><tr><th>Цель</th><th class="num">Отложено</th><th class="num">В копилке на '+p.label+'</th></tr>'+allocRows+'</table>'
-    + (r.unallocated>0.5 ? '<div class="small-note">Нераспределённый остаток: '+fmt(r.unallocated)+'</div>' : '')
+    + renderRemainderLine(r)
     + '</div>';
   return '<div class="period-card'+(open?' open':'')+(isPastCard?' past':'')+'" data-period-card="'+p.id+'">'+head+body+'</div>';
 }
@@ -1787,7 +1972,8 @@ function renderInstallments(sim){
 /* ---------- categories ---------- */
 function renderCategories(sim){
   var total = categoriesTemplateTotal(state);
-  var oklad = state.oklad.history.length ? state.oklad.history[state.oklad.history.length-1].amount : 0;
+  var latestOk = latestOkladEntry(state);
+  var oklad = latestOk ? latestOk.amount : 0;
   var okladNet = estimateMonthlyNet(oklad, state.ndfl.brackets);
   var cards = state.categories.map(function(c,idx){
     var planned = categoryPlannedTotal(c);
@@ -1944,6 +2130,18 @@ function renderSettings(sim){
       + (locked ? '<div class="small-note">🔒 из периодов «Доходы»</div>' : '')
       + '</div>';
   }).join('') + '</div>';
+  function vacationBindingNote(v){
+    var asg = vacationAssignments(v.id, state);
+    var target = vacationTargetPeriod(v, state);
+    var where = asg.map(function(a){ return ruDate(a.period.date)+(a.share!==1 ? ' ('+Math.round(a.share*100)+'%)' : ''); }).join(', ');
+    var html = '<div class="small-note">'
+      + (asg.length ? 'Отпускные прибавляются к выплате: <b>'+where+'</b>.' : (target ? '' : 'В плане нет выплаты раньше начала отпуска — отпускные пока не попадают в доход.'));
+    var standard = target && asg.length===1 && asg[0].period.id===target.id && asg[0].share===1;
+    if(target && asg.length && !standard){
+      html += ' По правилу (последняя выплата до начала отпуска) — '+ruDate(target.date)+'. <button class="small ghost" data-vac-rebind="'+v.id+'">Перенести</button>';
+    }
+    return html + '</div>';
+  }
   var vacHtml = state.vacations.map(function(v){
     var formula = calcVacationPayFormula(v, state);
     var avg = v.start ? avgDailyEarnings(v.start, state) : 0;
@@ -1956,6 +2154,7 @@ function renderSettings(sim){
       + '</div>'
       + '<div class="small-note">Средний дневной заработок за 12 мес: <b class="num">'+fmt(avg)+'</b>. Формула (дней × средний): <b class="num">'+(formula==null?'—':fmt(formula))+'</b>. '
       + '<button class="small ghost" data-vac-apply-formula="'+v.id+'" style="margin-left:6px;">Подставить по формуле</button></div>'
+      + vacationBindingNote(v)
       + '</div>';
   }).join('');
   var sickHtml = state.sickLeaves.map(function(s){
@@ -1990,7 +2189,7 @@ function renderSettings(sim){
   return ''
     + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Годы планирования</h2><button class="small" data-add-year>+ добавить '+(maxYear+1)+' год</button></div>'
     + '<div style="margin-bottom:8px;">' + yearsListHtml + '</div>'
-    + '<div class="info-box">При добавлении нового года создаются периоды выплат (аванс/зарплата дважды в месяц) на основе текущего оклада; праздники для нового года календарь пока не знает (используются только выходные) — добавьте их вручную в производственном календаре ниже, когда они станут известны. Уже прошедшие периоды фиксируются автоматически по сегодняшней дате и не пересчитываются при изменении настроек — см. кнопку «🔒 Зафиксировать» на вкладке «Доходы». Крестик рядом с годом выше удаляет все его периоды из плана (с подтверждением, если они уже есть).</div>'
+    + '<div class="info-box">При добавлении нового года создаются выплаты: аванс 20-го числа (за 1–15 число) и зарплата 5-го числа следующего месяца (за 16-е – конец месяца). Если дата выпадает на выходной или праздник, выплата ставится на ближайший рабочий день раньше. Сумма «на руки» считается по окладу, действовавшему в отработанные дни, по числу отработанных дней (без отпусков и больничных) и НДФЛ нарастающим итогом за календарный год. Стандартные праздники (1–8 января, 23 февраля, 8 марта, 1 и 9 мая, 12 июня, 4 ноября) добавляются в календарь автоматически — переносы выходных добавьте вручную ниже. Уже прошедшие периоды фиксируются автоматически по сегодняшней дате и не пересчитываются при изменении настроек — см. кнопку «🔒 Зафиксировать» на вкладке «Доходы». Крестик рядом с годом выше удаляет все его периоды из плана (с подтверждением, если они уже есть).</div>'
     + '</div>'
     + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Оклад</h2><button class="small" data-add-oklad>+ повышение</button></div>'
     + '<div class="small-note" style="margin-bottom:6px;">Указывайте оклад <b>до вычета НДФЛ (gross)</b> — сколько действует «с даты» и до следующей записи. Аванс/зарплата считаются пропорционально отработанным рабочим дням от этого оклада; сумму «на руки» инструмент считает сам по таблице НДФЛ ниже.</div>'
@@ -2005,22 +2204,24 @@ function renderSettings(sim){
     + '<div class="info-box" style="margin-bottom:8px;">Нужны для расчёта среднего дневного заработка при отпусках в начале '+esc(planYearsLabel(state))+' года (используется скользящее окно 12 месяцев до отпуска — часть месяцев из 2026 года, часть из уже прошедших периодов). <b>Что именно вписывать:</b> одна сумма на весь месяц (не на выплату) — сложите аванс и зарплату за этот месяц вместе; сумма должна быть «на руки» (после вычета налога), точно как в поле «Доход на руки» у периодов; отпускные, если в этом месяце был отпуск, в эту сумму включать <b>не нужно</b> — отпускные не участвуют в расчёте среднего заработка по закону, только обычная зарплата. Если за месяц 2026 года на вкладке «Доходы» добавлены и аванс, и зарплата, их сумма подставляется сюда автоматически и поле закрывается для правки. Если эти периоды удалить, последняя сумма останется в поле и её снова можно менять.</div>'
     + incomeHtml + '</div>'
 
-    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Отпуска</h2><button class="small" data-add-vac>+ отпуск</button></div>' + vacHtml + '</div>'
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Отпуска</h2><button class="small" data-add-vac>+ отпуск</button></div>'
+    + '<div class="info-box" style="margin-bottom:10px;">Отпускные прибавляются к последней выплате <b>до</b> начала отпуска: отпуск с 10.06 — к выплате 05.06. У нового отпуска и при смене его дат сумма отпускных пересчитывается по формуле; её можно поправить здесь — в карточке периода она только для просмотра. Дни отпуска не входят в отработанные дни при расчёте аванса и зарплаты.</div>'
+    + vacHtml + '</div>'
 
     + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Больничные</h2><button class="small" data-add-sick>+ больничный</button></div>'
     + '<div class="small-note" style="margin-bottom:8px;">Дни больничного в расчётном месяце уменьшают коэффициент 29.3 пропорционально — это снижает средний заработок за такой месяц при расчёте отпускных.</div>'
     + sickHtml + '</div>'
 
     + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Производственный календарь</h2></div>'
-    + '<div class="info-box" style="margin-bottom:10px;">Официальный производственный календарь на 2027 год ещё не опубликован Правительством РФ. Ниже — оценка на основе стандартных праздничных дат (без переноса выходных). Когда календарь опубликуют, скорректируйте список праздников. Список ниже общий на все года плана; при добавлении нового года праздники для него подберите отдельно.</div>'
+    + '<div class="info-box" style="margin-bottom:10px;">Официальный производственный календарь на 2027 год ещё не опубликован Правительством РФ. Ниже — оценка на основе стандартных праздничных дат (без переноса выходных). Когда календарь опубликуют, скорректируйте список праздников. Список ниже общий на все года плана; при добавлении нового года стандартные праздники для него добавляются автоматически, переносы выходных внесите сами.</div>'
     + '<div style="margin-bottom:10px;">' + holidaysHtml + '</div>'
     + '<div class="row" style="gap:6px;max-width:260px;"><input type="date" id="new-holiday-date"><button class="small" data-add-holiday>Добавить</button></div>'
     + '<hr class="sep">' + wdHtml + '</div>'
 
     + '<div class="card info-box">'
     + '<b>О расчётах в этом инструменте</b><br><br>'
-    + '• <b>Аванс/зарплата</b>: оклад (gross) делится пропорционально числу рабочих дней в 1-й (1–15) и 2-й (16 – конец месяца) половинах месяца по календарю выше.<br>'
-    + '• <b>НДФЛ и «на руки»</b>: налог считается нарастающим итогом с начала года по прогрессивной шкале выше — чем больше уже заработано в этом году, тем выше ставка на следующий рубль. Значение «по формуле» в периодах — это оценка от gross-оклада; расчёт учитывает только оклад (без отпускных, которые обычно занимают малую часть года до более высоких порогов).<br>'
+    + '• <b>Аванс/зарплата</b>: средний заработок за рабочий день = оклад ÷ рабочих дней в месяце; сумма периода = средний заработок × отработанные дни в 1-й (1–15) или 2-й (16 – конец месяца) половине месяца. Отработанные — рабочие дни по календарю выше, кроме дней отпусков и больничных; для каждого дня берётся оклад, действовавший в этот день (последняя по дате запись).<br>'
+    + '• <b>НДФЛ и «на руки»</b>: налог считается нарастающим итогом за календарный год выплаты по прогрессивной шкале выше — в годовой доход по порядку дат входят все выплаты этого года (зарплата и отпускные). Чем больше уже получено в году, тем выше ставка на следующий рубль.<br>'
     + '• <b>Отпускные</b>: средний дневной заработок = сумма дохода за 12 месяцев до отпуска ÷ сумма коэффициентов (29.3 на полностью отработанный месяц, пропорционально меньше — если в месяце были больничные); отпускные = средний дневной заработок × число календарных дней отпуска. При повышении оклада внутри 12-месячного окна более ранние месяцы индексируются пропорционально. Доход, который вы вписываете по периодам и за 2026 год, должен быть <b>без отпускных</b> — они прибавляются к доходу периода автоматически из вкладки «Отпуска» и не должны попадать в поле «Доход на руки» повторно.<br>'
     + '• <b>Сезонные категории</b>: категорию или отдельную статью можно ограничить датами (например 01.12–20.03) — тогда сумма учитывается только в периоды внутри этого диапазона, в остальное время не расходуется.<br>'
     + '• <b>Накопления и подцели</b>: цель можно разбить на подцели (этапы), каждый со своей суммой и (опционально) сроком; общая цель = сумма всех этапов, а прогресс копится нарастающим итогом — уже пройденный этап засчитан навсегда, даже если деньги потом потратили. На каждый период считается «сколько нужно отложить, чтобы успеть к сроку текущего этапа» = (сумма этапа − уже отложено в его рамках) ÷ (периодов до срока) — это и есть срочность копилки на данный момент. Свободный остаток распределяется не жёстко по приоритету, а по срочности: первой получает деньги та копилка, которой в пересчёте на период нужно больше, даже если её приоритет ниже — так цель с ближним сроком не сдвигается ради цели с большим запасом времени. Приоритет остаётся решающим только когда срочность одинаковая (например, у целей без срока). Как только копилка (или её текущий этап) набирает нужную сумму, пополнение останавливается и излишек уходит следующей по срочности цели. Цель без срока получает то, что осталось после срочных целей, а прогресс показывается как прогнозируемая дата достижения при текущем плане.<br>'
@@ -2050,9 +2251,11 @@ function attachEvents(sim){
   });
   bindChange('[data-period-date]', function(el){
     var p = findPeriod(el.dataset.period);
-    if(p && el.value){
-      p.date = el.value;
-      p.label = periodLabelFromDate(el.value);
+    if(p && el.value && el.value!==p.date){
+      withVacationRebind(state, function(){
+        p.date = el.value;
+        p.label = periodLabelFromDate(el.value);
+      });
     }
   });
   /* manual periods: add form */
@@ -2090,7 +2293,7 @@ function attachEvents(sim){
     var p = findPeriod(pid);
     if(!p) return;
     if(!confirm('Удалить период '+ruDate(p.date)+' ('+(p.type==='avans'?'аванс':'зарплата')+' за '+MONTH_NAMES[p.monthRef.m].toLowerCase()+' '+p.monthRef.y+')?\n\nЕго доход, расходы и суммы в копилках удалятся безвозвратно.')) return;
-    state.periods = state.periods.filter(function(x){ return x.id!==pid; });
+    withVacationRebind(state, function(){ state.periods = state.periods.filter(function(x){ return x.id!==pid; }); });
     delete state.savingsOverrides[pid];
     delete state.categoryOverrides[pid];
     delete ui.openPeriods[pid];
@@ -2209,7 +2412,7 @@ function attachEvents(sim){
   /* goals */
   root.querySelectorAll('[data-add-goal]').forEach(function(b){ b.addEventListener('click', function(){
     var maxP = state.goals.reduce(function(m,g){return Math.max(m,g.priority);},0);
-    state.goals.push({id:uid('goal'), name:'Новая цель', priority:maxP+1, target:0, deadline:'2027-12-31', startingBalance:0, completed:false, subgoals:[], withdrawals:[]});
+    state.goals.push({id:uid('goal'), name:'Новая цель', priority:maxP+1, target:0, deadline:todayISO(), startingBalance:0, completed:false, subgoals:[], withdrawals:[]});
     scheduleSave();
   }); });
   root.querySelectorAll('[data-goal-del]').forEach(function(b){ b.addEventListener('click', function(){
@@ -2373,7 +2576,7 @@ function attachEvents(sim){
     showPastPeriods = !showPastPeriods; render();
   }); });
   root.querySelectorAll('[data-wd-add]').forEach(function(b){ b.addEventListener('click', function(){
-    var g=findGoal(b.getAttribute('data-wd-add')); if(g){ g.withdrawals.push({date:'2027-01-05',amount:0,note:''}); scheduleSave(); }
+    var g=findGoal(b.getAttribute('data-wd-add')); if(g){ g.withdrawals.push({date:todayISO(),amount:0,note:'',label:''}); scheduleSave(); }
   }); });
   root.querySelectorAll('[data-wd-del]').forEach(function(b){ b.addEventListener('click', function(){
     var g=findGoal(b.dataset.goal); if(g){ g.withdrawals.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
@@ -2422,8 +2625,8 @@ function attachEvents(sim){
   root.querySelectorAll('[data-add-year]').forEach(function(b){ b.addEventListener('click', function(){
     var years = planYears(state);
     var newYear = (years.length ? years[years.length-1] : 2026) + 1;
-    var gen = generateYearPeriods(newYear, state);
-    state.periods = state.periods.concat(gen);
+    generateYearPeriods(newYear, state);
+    ui.selectedYear = newYear;
     scheduleSave();
   }); });
   root.querySelectorAll('[data-del-year]').forEach(function(b){ b.addEventListener('click', function(){
@@ -2434,7 +2637,7 @@ function attachEvents(sim){
       var ok = confirm('Удалить '+y+' год из плана?\n\nБудет удалено периодов: '+toRemove.length+'. Все их данные — фактические суммы, распределение по копилкам, доп. доходы, зафиксированные периоды — удалятся безвозвратно.');
       if(!ok) return;
     }
-    state.periods = state.periods.filter(function(p){ return p.monthRef.y!==y; });
+    withVacationRebind(state, function(){ state.periods = state.periods.filter(function(p){ return p.monthRef.y!==y; }); });
     toRemove.forEach(function(p){
       delete state.savingsOverrides[p.id];
       delete state.categoryOverrides[p.id];
@@ -2454,7 +2657,8 @@ function attachEvents(sim){
 
   /* settings: oklad */
   root.querySelectorAll('[data-add-oklad]').forEach(function(b){ b.addEventListener('click', function(){
-    state.oklad.history.push({effectiveFrom:'2027-06-01', amount: state.oklad.history[state.oklad.history.length-1].amount}); scheduleSave();
+    var lastOk = latestOkladEntry(state);
+    state.oklad.history.push({effectiveFrom:todayISO(), amount: lastOk ? lastOk.amount : 0}); scheduleSave();
   }); });
   root.querySelectorAll('[data-oklad-del]').forEach(function(b){ b.addEventListener('click', function(){
     state.oklad.history.splice(parseInt(b.dataset.idx,10),1); scheduleSave();
@@ -2484,7 +2688,13 @@ function attachEvents(sim){
 
   /* vacations */
   root.querySelectorAll('[data-add-vac]').forEach(function(b){ b.addEventListener('click', function(){
-    state.vacations.push({id:uid('vac'), start:'2027-06-01', end:'2027-06-07', note:'Отпуск', manualPay:0}); scheduleSave();
+    var t = todayISO();
+    var v = {id:uid('vac'), start:t, end:t, note:'Отпуск', manualPay:0};
+    state.vacations.push(v);
+    var f = calcVacationPayFormula(v, state);
+    v.manualPay = f!=null ? f : 0;
+    autoAssignVacations(state);
+    scheduleSave();
   }); });
   root.querySelectorAll('[data-vac-del]').forEach(function(b){ b.addEventListener('click', function(){
     var id=b.getAttribute('data-vac-del'); state.vacations = state.vacations.filter(function(v){return v.id!==id;});
@@ -2496,13 +2706,39 @@ function attachEvents(sim){
     if(v){ var f = calcVacationPayFormula(v, state); if(f!=null) v.manualPay = f; scheduleSave(); }
   }); });
   bindChange('[data-vac-note]', function(el){ var v=findVac(el.dataset.id); if(v) v.note=el.value; });
-  bindChange('[data-vac-start]', function(el){ var v=findVac(el.dataset.id); if(v) v.start=el.value; });
-  bindChange('[data-vac-end]', function(el){ var v=findVac(el.dataset.id); if(v) v.end=el.value; });
+  /* смена дат: отпускные пересчитываются по формуле и переезжают в выплату перед новым началом */
+  function onVacDatesChanged(v, startChanged){
+    var f = calcVacationPayFormula(v, state);
+    if(f!=null) v.manualPay = f;
+    if(startChanged){ unassignVacation(state, v.id); autoAssignVacations(state); }
+  }
+  bindChange('[data-vac-start]', function(el){
+    var v=findVac(el.dataset.id); if(!v || !el.value || el.value===v.start) return;
+    v.start=el.value;
+    if(v.end && v.end < v.start) v.end = v.start;
+    onVacDatesChanged(v, true);
+  });
+  bindChange('[data-vac-end]', function(el){
+    var v=findVac(el.dataset.id); if(!v || !el.value || el.value===v.end) return;
+    v.end = el.value < v.start ? v.start : el.value;
+    onVacDatesChanged(v, false);
+  });
+  root.querySelectorAll('[data-vac-rebind]').forEach(function(b){ b.addEventListener('click', function(){
+    var id = b.getAttribute('data-vac-rebind');
+    unassignVacation(state, id); autoAssignVacations(state); scheduleSave();
+  }); });
+  root.querySelectorAll('[data-income-apply-formula]').forEach(function(b){ b.addEventListener('click', function(ev){
+    ev.stopPropagation();
+    var p = findPeriod(b.getAttribute('data-income-apply-formula'));
+    var plan = computeSalaryNetPlan(state);
+    if(p && plan[p.id]){ p.incomeActual = plan[p.id].net; scheduleSave(); }
+  }); });
   bindChange('[data-vac-pay]', function(el){ var v=findVac(el.dataset.id); if(v) v.manualPay=parseNum(el.value); });
 
   /* sick leaves */
   root.querySelectorAll('[data-add-sick]').forEach(function(b){ b.addEventListener('click', function(){
-    state.sickLeaves.push({id:uid('sick'), start:'', end:'', note:''}); scheduleSave();
+    var t = todayISO();
+    state.sickLeaves.push({id:uid('sick'), start:t, end:t, note:''}); scheduleSave();
   }); });
   root.querySelectorAll('[data-sick-del]').forEach(function(b){ b.addEventListener('click', function(){
     var id=b.getAttribute('data-sick-del'); state.sickLeaves = state.sickLeaves.filter(function(s){return s.id!==id;}); scheduleSave();
