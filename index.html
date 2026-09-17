@@ -332,7 +332,7 @@ var publishTimer = null;
 var saveStatus = 'idle';
 /* кредитки и рассрочки хранятся в отдельных таблицах (debts.sql) через get/save_debts_state */
 var debtsStorageOk = false;
-function emptyDebts(){ return { cards:[], installments:[], paymentOverrides:{} }; }
+function emptyDebts(){ return { cards:[], installments:[], paymentOverrides:{}, workingDays:{} }; }
 function normalizeDebts(d){
   d = (d && typeof d==='object') ? d : {};
   var out = emptyDebts();
@@ -350,6 +350,13 @@ function normalizeDebts(d){
   Object.keys(po).forEach(function(pid){
     out.paymentOverrides[pid] = {};
     Object.keys(po[pid]||{}).forEach(function(cid){ out.paymentOverrides[pid][cid] = Number(po[pid][cid])||0; });
+  });
+  var wd = d.workingDays||{};
+  Object.keys(wd).forEach(function(ym){
+    var v = wd[ym]||{}, o = {};
+    if(v.first!=null && v.first!=='') o.first = Math.max(0, Number(v.first)||0);
+    if(v.second!=null && v.second!=='') o.second = Math.max(0, Number(v.second)||0);
+    if(Object.keys(o).length) out.workingDays[ym] = o;
   });
   return out;
 }
@@ -420,13 +427,21 @@ function pad2(n){ return (n<10?'0':'')+n; }
 function isoDate(y,m,d){ return y+'-'+pad2(m)+'-'+pad2(d); }
 function daysInMonth(y,m){ return new Date(y,m,0).getDate(); }
 function dowUTC(y,m,d){ return new Date(Date.UTC(y,m-1,d)).getUTCDay(); }
+/* Стандартные нерабочие праздники РФ — одни и те же для всех лет, в списке дат не хранятся.
+   В календаре вручную добавляются только дополнительные даты: переносы выходных и т. п. */
+var STANDARD_HOLIDAY_MD = ['01-01','01-02','01-03','01-04','01-05','01-06','01-07','01-08','02-23','03-08','05-01','05-09','06-12','11-04'];
+var STANDARD_HOLIDAY_SET = new Set(STANDARD_HOLIDAY_MD);
+function isStandardHoliday(iso){ return STANDARD_HOLIDAY_SET.has(String(iso).slice(5,10)); }
 function isWorkingDay(y,m,d,holidaySet){
   var dow = dowUTC(y,m,d);
   if(dow===0||dow===6) return false;
-  if(holidaySet.has(isoDate(y,m,d))) return false;
+  var iso = isoDate(y,m,d);
+  if(STANDARD_HOLIDAY_SET.has(iso.slice(5,10))) return false;
+  if(holidaySet.has(iso)) return false;
   return true;
 }
-function workingDaysInHalf(y,m,half,st){
+/* рабочие дни по календарю (выходные, стандартные праздники и добавленные даты) */
+function workingDaysInHalfCalendar(y,m,half,st){
   var holidaySet = new Set(st.meta.holidays);
   var dim = daysInMonth(y,m);
   var start = half==='first'?1:16;
@@ -434,6 +449,17 @@ function workingDaysInHalf(y,m,half,st){
   var c=0;
   for(var d=start; d<=end; d++){ if(isWorkingDay(y,m,d,holidaySet)) c++; }
   return c;
+}
+function wdKey(y,m){ return y+'-'+pad2(m); }
+function wdOverrideFor(st,y,m){
+  var o = (st.debts && st.debts.workingDays) || {};
+  return o[wdKey(y,m)] || null;
+}
+/* рабочие дни половины месяца: вручную исправленное значение важнее календарного */
+function workingDaysInHalf(y,m,half,st){
+  var ov = wdOverrideFor(st,y,m);
+  if(ov && ov[half]!=null && !isNaN(ov[half])) return Math.max(0, ov[half]);
+  return workingDaysInHalfCalendar(y,m,half,st);
 }
 function workingDaysInMonth(y,m,st){ return workingDaysInHalf(y,m,'first',st)+workingDaysInHalf(y,m,'second',st); }
 function calendarDaysInclusive(startISO,endISO){
@@ -507,19 +533,6 @@ function planYearsLabel(st){
   if(!ys.length) return '';
   return ys.length===1 ? String(ys[0]) : ys[0]+'–'+ys[ys.length-1];
 }
-/* стандартные нерабочие праздники РФ (без переносов выходных) */
-function standardHolidays(year){
-  var md = ['01-01','01-02','01-03','01-04','01-05','01-06','01-07','01-08','02-23','03-08','05-01','05-09','06-12','11-04'];
-  return md.map(function(x){ return year+'-'+x; });
-}
-function ensureStandardHolidays(st, year){
-  var set = new Set(st.meta.holidays), added = 0;
-  /* январь следующего года тоже нужен: зарплата за декабрь выплачивается 5 января */
-  standardHolidays(year).concat(standardHolidays(year+1).slice(0,8)).forEach(function(d){
-    if(!set.has(d)){ st.meta.holidays.push(d); set.add(d); added++; }
-  });
-  return added;
-}
 /* дата выплаты: если целевое число — выходной или праздник, берём ближайший рабочий день раньше */
 function payDateOnOrBefore(targetISO, st){
   var holidaySet = new Set(st.meta.holidays), d = targetISO;
@@ -534,7 +547,6 @@ function payDateOnOrBefore(targetISO, st){
    Сумма на руки — по окладу, отработанным дням (без отпусков и больничных) и НДФЛ нарастающим итогом
    за календарный год выплаты. Периоды сразу добавляются в план. */
 function generateYearPeriods(year, st){
-  ensureStandardHolidays(st, year);
   var out=[];
   for(var m=1;m<=12;m++){
     var avansDate = payDateOnOrBefore(isoDate(year,m,20), st);
@@ -645,17 +657,21 @@ function periodWorkInfo(period, st, ranges){
   ranges = ranges || absenceRanges(st);
   var dim = daysInMonth(y,m);
   var start = period.half==='first'?1:16, end = period.half==='first'?15:dim;
-  var halfWD = 0, worked = 0, gross = 0;
+  var calHalf = 0, calWorked = 0, okladSum = 0;
   for(var d=start; d<=end; d++){
     if(!isWorkingDay(y,m,d,holidaySet)) continue;
-    halfWD++;
+    calHalf++;
     var iso = isoDate(y,m,d);
-    var absent = ranges.some(function(r){ return iso>=r[0] && iso<=r[1]; });
-    if(absent) continue;
-    worked++;
-    gross += okladForDate(iso, st)/monthWD;
+    if(ranges.some(function(r){ return iso>=r[0] && iso<=r[1]; })) continue;
+    calWorked++;
+    okladSum += okladForDate(iso, st);
   }
-  return { monthWD:monthWD, halfWD:halfWD, worked:worked, gross:Math.round(gross) };
+  /* если число рабочих дней половины исправлено вручную, отпуска и больничные
+     вычитаются из исправленного значения */
+  var halfWD = workingDaysInHalf(y,m,period.half,st);
+  var worked = Math.max(0, halfWD - Math.max(0, calHalf - calWorked));
+  var avgOklad = calWorked ? okladSum/calWorked : okladForDate(isoDate(y,m,start), st);
+  return { monthWD:monthWD, halfWD:halfWD, worked:worked, gross:Math.round(avgOklad*worked/monthWD) };
 }
 function calcPeriodIncomeFormula(period, st){
   if(period.calc==='manual') return null;
@@ -1309,6 +1325,12 @@ function sortSubgoalsByDeadline(st){
   });
   return changed;
 }
+/* стандартные праздники больше не хранятся в списке: чистим то, что было записано раньше */
+function pruneStandardHolidays(st){
+  var before = st.meta.holidays.length;
+  st.meta.holidays = st.meta.holidays.filter(function(d){ return !isStandardHoliday(d); });
+  return st.meta.holidays.length !== before;
+}
 function sortOkladHistory(st){
   var sorted = sortedOkladHistory(st);
   for(var i=0;i<sorted.length;i++){
@@ -1452,6 +1474,7 @@ function render(){
   changed = syncIncome2026(state) || changed;
   changed = sortInstallmentPayments(state) || changed;
   changed = sortOkladHistory(state) || changed;
+  changed = pruneStandardHolidays(state) || changed;
   changed = ensurePastPeriodsLocked(state) || changed;
   if(changed){
     clearTimeout(publishTimer); saveStatus='pending'; publishTimer=setTimeout(doPublish,500);
@@ -1602,7 +1625,7 @@ function renderPeriods(sim){
     + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Доходы и выплаты'+(activeYear!=null?' '+activeYear:'')+'</h2><span class="muted" style="font-size:12px;">аванс — за 1-ю половину месяца, зарплата — за 2-ю</span></div>'
     + renderAddPeriodForm()
     + '<div style="display:flex;flex-direction:column;gap:8px;">'
-    + renderPeriodList(yearRows, plan)
+    + renderPeriodList(yearRows, plan, sim)
     + (!yearRows.length ? '<div class="muted" style="font-size:12px;padding:8px 0;">Нет периодов в '+activeYear+' году</div>' : '')
     + '</div></div>';
 }
@@ -1642,14 +1665,22 @@ function renderPeriodVacationNote(p, st){
     + '<div class="small-note">Суммы отпускных меняются в разделе «Отпуска» — здесь только для просмотра.</div>';
 }
 function sumValues(o){ return Object.keys(o||{}).reduce(function(s,k){ return s+(o[k]||0); },0); }
-function renderPeriodDebts(r, st, p, dis){
+function renderPeriodDebts(r, st, p, dis, periodSim){
   var dts = debtsOf(st);
   if(!dts.installments.length && !dts.cards.length) return '';
   var paid = sumValues(r.debtPayments);
   var instRows = (r.installments||[]).map(function(x){
-    return '<tr><td>Платёж по рассрочке '+ruDate(x.date).slice(0,5)+(x.names.length?' <span class="muted">· '+esc(x.names.join(', '))+'</span>':'')+'</td><td class="num">'+fmt(x.amount)+'</td></tr>';
+    var st_ = periodSim ? paymentStateForDate(x.date, periodSim, todayISO()) : null;
+    var mark = st_ && st_.code==='paid' ? ' <span class="pill ok" style="font-size:9px;">оплачен</span>'
+      : (st_ && st_.code==='unpaid' ? ' <span class="pill danger" style="font-size:9px;">не оплачен</span>' : '');
+    return '<tr'+(st_ && st_.code==='paid' ? ' style="opacity:.6;"' : '')+'><td>Платёж по рассрочке '+ruDate(x.date).slice(0,5)+(x.names.length?' <span class="muted">· '+esc(x.names.join(', '))+'</span>':'')+mark+'</td><td class="num">'+fmt(x.amount)+'</td></tr>';
   }).join('');
-  var cardRows = dts.cards.map(function(c){
+  /* карты без долга и без погашения в этой выплате не показываем */
+  var liveCards = dts.cards.filter(function(c){
+    var before = (r.cardBefore||{})[c.id] || { debt:0 };
+    return (before.debt||0) > 0.5 || ((r.debtPayments||{})[c.id] || 0) > 0.5;
+  });
+  var cardRows = liveCards.map(function(c){
     var before = (r.cardBefore||{})[c.id] || { debt:0, deadline:null };
     var pay = (r.debtPayments||{})[c.id] || 0;
     var po = dts.paymentOverrides[p.id];
@@ -1670,13 +1701,15 @@ function renderPeriodDebts(r, st, p, dis){
         : '')
     + (dts.cards.length
         ? '<div style="margin-top:8px;font-size:12px;font-weight:600;">Кредитка</div>'
-          + '<table><tr><th>Карта</th><th class="num">Погашение</th></tr>'+cardRows+'</table>'
-          + '<div class="small-note">Сумма погашения считается автоматически — так, чтобы успеть до конца льготного периода; если впишете свою, план подстроится под неё.</div>'
+          + (liveCards.length
+              ? '<table><tr><th>Карта</th><th class="num">Погашение</th></tr>'+cardRows+'</table>'
+                + '<div class="small-note">Сумма погашения считается автоматически — так, чтобы успеть до конца льготного периода; если впишете свою, план подстроится под неё.</div>'
+              : '<div class="small-note">Долгов по кредиткам в этой выплате нет.</div>')
         : '');
 }
 var showPastPeriods = false;
 /* сверху — последняя прошедшая выплата, ниже — будущие; более ранние спрятаны под плашкой */
-function renderPeriodList(rows, plan){
+function renderPeriodList(rows, plan, sim){
   var today = todayISO();
   var past = rows.filter(function(r){ return r.period.date<=today; });
   var upcoming = rows.filter(function(r){ return r.period.date>today; });
@@ -1687,14 +1720,14 @@ function renderPeriodList(rows, plan){
     html += '<button class="past-toggle" data-toggle-past>'
       + (showPastPeriods ? '▾ Скрыть предыдущие выплаты' : '▸ Показать предыдущие выплаты')
       + ' <span class="num">('+earlier.length+')</span></button>';
-    if(showPastPeriods) html += earlier.map(function(r){ return renderPeriodCard(r, state, plan, true); }).join('');
+    if(showPastPeriods) html += earlier.map(function(r){ return renderPeriodCard(r, state, plan, true, sim); }).join('');
   }
-  if(lastPast) html += renderPeriodCard(lastPast, state, plan, true);
+  if(lastPast) html += renderPeriodCard(lastPast, state, plan, true, sim);
   if(lastPast && upcoming.length) html += '<div class="upcoming-divider">предстоящие выплаты</div>';
-  html += upcoming.map(function(r){ return renderPeriodCard(r, state, plan, false); }).join('');
+  html += upcoming.map(function(r){ return renderPeriodCard(r, state, plan, false, sim); }).join('');
   return html;
 }
-function renderPeriodCard(r, st, plan, isPastCard){
+function renderPeriodCard(r, st, plan, isPastCard, periodSim){
   var p = r.period;
   var open = !!ui.openPeriods[p.id];
   var typeLabel = p.type==='avans' ? 'Аванс' : 'Зарплата';
@@ -1778,7 +1811,7 @@ function renderPeriodCard(r, st, plan, isPastCard){
     + '<hr class="sep">'
     + '<div class="row between"><b style="font-size:13px;">Расходы по категориям (переопределение периода)</b><span class="num muted">'+fmt(r.categoriesTotal)+'</span></div>'
     + '<table>'+catRows+'</table>'
-    + renderPeriodDebts(r, st, p, dis)
+    + renderPeriodDebts(r, st, p, dis, periodSim)
     + '<hr class="sep">'
     + '<div class="row between"><b style="font-size:13px;">Распределение по копилкам</b><button class="small ghost" data-clear-alloc-override="'+p.id+'"'+dis+'>'+(hasOverride?(p.locked?'Обнулить':'Сбросить на авто-расчёт'):'')+'</button></div>'
     + '<table><tr><th>Цель</th><th class="num">Отложено</th><th class="num">В копилке на '+p.label+'</th></tr>'+allocRows+'</table>'
@@ -1787,11 +1820,39 @@ function renderPeriodCard(r, st, plan, isPastCard){
   return '<div class="period-card'+(open?' open':'')+(isPastCard?' past':'')+'" data-period-card="'+p.id+'">'+head+body+'</div>';
 }
 
+/* ---------- статус платежей: оплачено или ещё нет ---------- */
+/* Платёж считается оплаченным, если его дата прошла и выплаты, из которой он платится,
+   хватило на все расходы (остаток после расходов не отрицательный). Если выплата ушла
+   в дефицит, платёж остаётся видимым как неоплаченный. */
+function payoutRowForDate(dateISO, sim){
+  var row = null;
+  sim.rows.forEach(function(r){ if(r.period.date<=dateISO && (!row || r.period.date>row.period.date)) row = r; });
+  return row;
+}
+function paymentStateForDate(dateISO, sim, today){
+  if(!dateISO) return { code:'nodate', label:'без даты', cls:'' };
+  var row = payoutRowForDate(dateISO, sim);
+  var src = row ? 'из выплаты '+ruDate(row.period.date) : 'вне плана';
+  if(dateISO > today) return { code:'upcoming', label:src, cls:'', row:row };
+  if(!row) return { code:'unknown', label:'вне плана', cls:'warn', row:null };
+  if(row.free >= -0.5) return { code:'paid', label:'оплачен', cls:'ok', row:row };
+  return { code:'unpaid', label:'не оплачен: дефицит выплаты '+ruDate(row.period.date), cls:'danger', row:row };
+}
+/* операция по карте относится к уже закрытому (полностью погашенному) периоду — это история */
+function cardOpIsHistory(op, cycles, today){
+  if(!op.date || op.date > today) return false;
+  for(var i=0;i<cycles.length;i++){
+    var cy = cycles[i];
+    if(op.date >= cy.start && (!cy.closed || op.date <= cy.closed)) return !!(cy.closed && cy.closed <= today);
+  }
+  return true;
+}
+
 /* ---------- долги: общее ---------- */
 function debtsStorageWarning(){
   if(debtsStorageOk) return '';
   return '<div class="info-box" style="border:1px solid var(--danger);color:var(--danger);background:var(--danger-soft);margin-bottom:12px;">'
-    + '<b>Кредиты и рассрочки сейчас не сохраняются.</b> В базе нет таблиц для них: выполните один раз файл debts.sql в Supabase (SQL Editor) и обновите страницу. '
+    + '<b>Кредиты, рассрочки и правки календаря сейчас не сохраняются.</b> В базе нет таблиц для них: выполните в Supabase (SQL Editor) файлы debts.sql и calendar_update.sql и обновите страницу. '
     + 'До этого расчёты работают, но после перезагрузки введённое пропадёт.</div>';
 }
 function findCard(id){ return debtsOf(state).cards.find(function(c){ return c.id===id; }); }
@@ -1812,7 +1873,8 @@ function renderCredits(sim){
       var ka = a.o.date || '9999-99-99', kb = b.o.date || '9999-99-99';
       return ka<kb?-1:(ka>kb?1:a.i-b.i);
     });
-    var opsHtml = ops.map(function(x){
+    var cycles = sim.cardCycles[c.id] || [];
+    function opRow(x){
       var o = x.o, i = x.i;
       return '<div class="item-row op-row"'+(o.date && o.date<=today ? '' : ' style="opacity:.75;"')+'>'
         + '<input type="date" data-cop-date data-card="'+c.id+'" data-idx="'+i+'" value="'+esc(o.date)+'">'
@@ -1821,18 +1883,25 @@ function renderCredits(sim){
         + '<input type="text" inputmode="numeric" class="num" data-cop-amount data-card="'+c.id+'" data-idx="'+i+'" value="'+o.amount+'">'
         + '<button class="ghost small" data-cop-del data-card="'+c.id+'" data-idx="'+i+'">✕</button>'
         + '</div>';
-    }).join('');
-    var cycles = sim.cardCycles[c.id] || [];
-    var cyclesHtml = cycles.length
-      ? '<div class="table-scroll"><table><tr><th>Первая трата</th><th>Погасить до</th><th>Погашен</th><th></th></tr>'
-        + cycles.map(function(cy){
-            var stt = cardCycleStatus(cy, sim.planEnd);
-            return '<tr><td class="num" style="text-align:left;">'+ruDate(cy.start)+'</td><td class="num" style="text-align:left;">'+ruDate(cy.deadline)+'</td>'
-              + '<td class="num" style="text-align:left;">'+(cy.closed?ruDate(cy.closed):'—')+'</td>'
-              + '<td><span class="pill '+stt.cls+'" style="font-size:10px;">'+stt.label+'</span></td></tr>';
-          }).join('')
-        + '</table></div>'
-      : '<div class="small-note">Периодов погашения пока нет — первый начнётся с первой траты.</div>';
+    }
+    /* операции уже закрытых (полностью погашенных) периодов прячем в историю */
+    var liveOps = ops.filter(function(x){ return !cardOpIsHistory(x.o, cycles, today); });
+    var pastOps = ops.filter(function(x){ return cardOpIsHistory(x.o, cycles, today); });
+    var opsHtml = (liveOps.length ? liveOps.map(opRow).join('') : '<div class="small-note">Незакрытых операций нет.</div>')
+      + (pastOps.length ? '<details style="margin:6px 0;"><summary class="muted" style="cursor:pointer;font-size:12px;">История операций ('+pastOps.length+')</summary>'+pastOps.map(opRow).join('')+'</details>' : '');
+    function cycleRow(cy){
+      var stt = cardCycleStatus(cy, sim.planEnd);
+      return '<tr><td class="num" style="text-align:left;">'+ruDate(cy.start)+'</td><td class="num" style="text-align:left;">'+ruDate(cy.deadline)+'</td>'
+        + '<td class="num" style="text-align:left;">'+(cy.closed?ruDate(cy.closed):'—')+'</td>'
+        + '<td><span class="pill '+stt.cls+'" style="font-size:10px;">'+stt.label+'</span></td></tr>';
+    }
+    var cycHead = '<tr><th>Первая трата</th><th>Погасить до</th><th>Погашен</th><th></th></tr>';
+    var liveCycles = cycles.filter(function(cy){ return !(cy.closed && cy.closed<=today); });
+    var doneCycles = cycles.filter(function(cy){ return cy.closed && cy.closed<=today; });
+    var cyclesHtml = (liveCycles.length
+        ? '<div class="table-scroll"><table>'+cycHead+liveCycles.map(cycleRow).join('')+'</table></div>'
+        : '<div class="small-note">'+(cycles.length ? 'Открытых периодов погашения нет — долг закрыт.' : 'Периодов погашения пока нет — первый начнётся с первой траты.')+'</div>')
+      + (doneCycles.length ? '<details style="margin-top:6px;"><summary class="muted" style="cursor:pointer;font-size:12px;">Погашенные периоды ('+doneCycles.length+')</summary><div class="table-scroll" style="opacity:.65;"><table>'+cycHead+doneCycles.map(cycleRow).join('')+'</table></div></details>' : '');
     return '<div class="goal-card">'
       + '<div class="goal-top">'
       + '<input type="text" style="font-weight:700;font-size:15px;border:none;background:transparent;flex:1;min-width:120px;" data-card-name data-card="'+c.id+'" value="'+esc(c.name)+'" placeholder="Название карты">'
@@ -1903,21 +1972,26 @@ function renderInstallments(sim){
     });
   });
   var dates = Object.keys(byDate).sort();
-  var future = dates.filter(function(d){ return d>today; });
-  var past = dates.filter(function(d){ return d<=today; });
-  var remaining = future.reduce(function(s,d){ return s+byDate[d].amount; },0);
+  function dateState(d){ return paymentStateForDate(d, sim, today); }
+  var open = dates.filter(function(d){ return dateState(d).code!=='paid'; });
+  var doneDates = dates.filter(function(d){ return dateState(d).code==='paid'; });
+  var upcoming = open.filter(function(d){ return d>today; });
+  var remaining = open.reduce(function(s,d){ return s+byDate[d].amount; },0);
   function schedRow(d){
-    return '<tr><td class="num" style="text-align:left;">'+ruDate(d)+'</td><td>'+esc(byDate[d].names.join(', '))+'</td><td class="muted">'+sourceLabel(d)+'</td><td class="num">'+fmt(byDate[d].amount)+'</td></tr>';
+    var st_ = dateState(d);
+    return '<tr'+(st_.code==='paid'?' style="opacity:.6;"':'')+'><td class="num" style="text-align:left;">'+ruDate(d)+'</td><td>'+esc(byDate[d].names.join(', '))+'</td>'
+      + '<td class="muted">'+(st_.code==='paid' ? 'оплачен '+sourceLabel(d) : (st_.code==='unpaid' ? '<span style="color:var(--danger);">'+esc(st_.label)+'</span>' : sourceLabel(d)))+'</td>'
+      + '<td class="num">'+fmt(byDate[d].amount)+'</td></tr>';
   }
   var head = '<tr><th>Дата</th><th>Покупки</th><th>Откуда платим</th><th class="num">Сумма</th></tr>';
   var schedule = dates.length
     ? '<div class="debt-stats">'
-      + '<div><div class="v">'+fmt(remaining)+'</div><div class="l">Осталось заплатить после '+ruDate(today)+'</div></div>'
-      + '<div><div class="v">'+(future.length ? ruDate(future[0]) : '—')+'</div><div class="l">Ближайший платёж'+(future.length?' · '+fmt(byDate[future[0]].amount):'')+'</div></div>'
-      + '<div><div class="v">'+(future.length ? ruDate(future[future.length-1]) : '—')+'</div><div class="l">Последний платёж</div></div>'
+      + '<div><div class="v">'+fmt(remaining)+'</div><div class="l">Осталось заплатить</div></div>'
+      + '<div><div class="v">'+(upcoming.length ? ruDate(upcoming[0]) : '—')+'</div><div class="l">Ближайший платёж'+(upcoming.length?' · '+fmt(byDate[upcoming[0]].amount):'')+'</div></div>'
+      + '<div><div class="v">'+(open.length ? ruDate(open[open.length-1]) : '—')+'</div><div class="l">Последний платёж</div></div>'
       + '</div>'
-      + (future.length ? '<div class="table-scroll"><table>'+head+future.map(schedRow).join('')+'</table></div>' : '<div class="small-note">Будущих платежей нет.</div>')
-      + (past.length ? '<details style="margin-top:8px;"><summary class="muted" style="cursor:pointer;font-size:12px;">Прошедшие платежи ('+past.length+')</summary><div class="table-scroll" style="opacity:.65;"><table>'+head+past.map(schedRow).join('')+'</table></div></details>' : '')
+      + (open.length ? '<div class="table-scroll"><table>'+head+open.map(schedRow).join('')+'</table></div>' : '<div class="small-note">Все платежи оплачены.</div>')
+      + (doneDates.length ? '<details style="margin-top:8px;"><summary class="muted" style="cursor:pointer;font-size:12px;">Оплаченные платежи ('+doneDates.length+')</summary><div class="table-scroll" style="opacity:.65;"><table>'+head+doneDates.map(schedRow).join('')+'</table></div></details>' : '')
     : '<div class="muted" style="font-size:13px;">Покупок в рассрочку пока нет.</div>';
 
   var form;
@@ -1945,20 +2019,26 @@ function renderInstallments(sim){
       + '</div>';
   }
 
-  var cardsHtml = insts.map(function(inst){
+  var closedCount = 0;
+  function instCard(inst){
     var pays = inst.payments||[];
-    var paidCnt = pays.filter(function(x){ return x.date && x.date<=today; }).length;
-    var left = pays.filter(function(x){ return !x.date || x.date>today; }).reduce(function(s,x){ return s+(x.amount||0); },0);
+    var states = pays.map(function(x){ return paymentStateForDate(x.date, sim, today); });
+    var paidCnt = states.filter(function(st_){ return st_.code==='paid'; }).length;
+    var left = pays.reduce(function(s,x,i){ return s + (states[i].code==='paid' ? 0 : (x.amount||0)); },0);
     var sumPays = pays.reduce(function(s,x){ return s+(x.amount||0); },0);
-    var rows = pays.map(function(x,i){
-      var isPaid = x.date && x.date<=today;
+    function payRow(x,i){
+      var st_ = states[i], isPaid = st_.code==='paid';
       return '<div class="item-row ip-row"'+(isPaid?' style="opacity:.6;"':'')+'>'
         + '<input type="date" data-ip-date data-inst="'+inst.id+'" data-idx="'+i+'" value="'+esc(x.date)+'">'
         + '<input type="text" inputmode="numeric" class="num" data-ip-amount data-inst="'+inst.id+'" data-idx="'+i+'" value="'+(x.amount||0)+'">'
-        + '<span class="pill'+(isPaid?' ok':'')+'" style="font-size:10px;">'+(isPaid?'оплачен':sourceLabel(x.date||'9999-99-99'))+'</span>'
+        + '<span class="pill'+(st_.cls?' '+st_.cls:'')+'" style="font-size:10px;">'+esc(st_.code==='paid'?'оплачен':st_.label)+'</span>'
         + '<button class="ghost small" data-ip-del data-inst="'+inst.id+'" data-idx="'+i+'">✕</button>'
         + '</div>';
-    }).join('');
+    }
+    var rows = pays.map(function(x,i){ return states[i].code==='paid' ? '' : payRow(x,i); }).join('');
+    var paidRows = pays.map(function(x,i){ return states[i].code==='paid' ? payRow(x,i) : ''; }).join('');
+    if(!rows) rows = '<div class="small-note">Все платежи по этой покупке оплачены.</div>';
+    if(paidRows) rows += '<details style="margin:6px 0;"><summary class="muted" style="cursor:pointer;font-size:12px;">Оплаченные платежи ('+paidCnt+')</summary>'+paidRows+'</details>';
     return '<div class="cat-card">'
       + '<div class="row between">'
       + '<input type="text" style="font-weight:700;font-size:14px;border:none;background:transparent;padding:2px 0;" data-inst-name data-inst="'+inst.id+'" value="'+esc(inst.name)+'" placeholder="Название покупки">'
@@ -1977,7 +2057,17 @@ function renderInstallments(sim){
       + (Math.round(sumPays)!==Math.round(inst.total) ? '<div class="small-note" style="color:var(--warn);">Сумма платежей '+fmt(sumPays)+' не совпадает с суммой покупки '+fmt(inst.total)+'.</div>' : '')
       + '<button class="small ghost" data-ip-add="'+inst.id+'">+ платёж</button>'
       + '</div>';
-  }).join('');
+  }
+  function instIsClosed(inst){
+    var pays = inst.payments||[];
+    if(!pays.length) return false;
+    return pays.every(function(x){ return paymentStateForDate(x.date, sim, today).code==='paid'; });
+  }
+  var activeInsts = insts.filter(function(i){ return !instIsClosed(i); });
+  var closedInsts = insts.filter(instIsClosed);
+  closedCount = closedInsts.length;
+  var cardsHtml = activeInsts.map(instCard).join('');
+  var closedHtml = closedInsts.map(instCard).join('');
 
   return debtsStorageWarning()
     + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Рассрочки</h2></div>'
@@ -1985,7 +2075,9 @@ function renderInstallments(sim){
     + '<div class="info-box" style="margin-bottom:12px;">Платёж оплачивается из последней выплаты до его даты: при выплатах 05.05 и 20.05 платёж 07.05 попадёт в выплату 05.05. Платежи разных покупок в одну дату складываются. В выплате они списываются сразу после расходов по категориям, до кредитки и копилок.</div>'
     + '<h3 style="font-size:14px;margin:4px 0 8px;">Общий график платежей</h3>'
     + schedule
-    + (insts.length ? '<h3 style="font-size:14px;margin:16px 0 8px;">Покупки</h3><div class="grid cols-2">'+cardsHtml+'</div>' : '')
+    + (activeInsts.length ? '<h3 style="font-size:14px;margin:16px 0 8px;">Покупки</h3><div class="grid cols-2">'+cardsHtml+'</div>' : '')
+    + (closedCount ? '<details style="margin-top:14px;"><summary class="muted" style="cursor:pointer;font-size:13px;">Закрытые покупки ('+closedCount+')</summary><div class="grid cols-2" style="margin-top:8px;opacity:.7;">'+closedHtml+'</div></details>' : '')
+    + (insts.length && !activeInsts.length ? '<div class="muted" style="font-size:13px;margin-top:10px;">Все покупки в рассрочку закрыты.</div>' : '')
     + '</div>';
 }
 
@@ -2187,6 +2279,7 @@ function renderVacations(sim){
 }
 
 /* ---------- settings ---------- */
+var holidayAddNote = '';
 /* Раздел настроек: свёрнут по умолчанию, кнопки быстрых действий видны всегда */
 function settingsSection(key, title, quickHtml, bodyHtml){
   var open = !!ui.openSettings[key];
@@ -2223,20 +2316,43 @@ function renderSettings(sim){
       + (locked ? '<div class="small-note">🔒 из периодов «Доходы»</div>' : '')
       + '</div>';
   }).join('') + '</div>';
-  var holidaysHtml = state.meta.holidays.slice().sort().map(function(h){
-    return '<span class="pill" style="margin:2px;">'+ruDate(h)+' <button class="ghost small" style="padding:0 0 0 4px;" data-holiday-del="'+h+'">✕</button></span>';
-  }).join('');
+  /* в списке хранятся только дополнительные даты: стандартные праздники встроены для всех лет */
+  var extraHolidays = state.meta.holidays.slice().sort();
+  var holidayYears = [];
+  extraHolidays.forEach(function(h){ var y=h.slice(0,4); if(holidayYears.indexOf(y)===-1) holidayYears.push(y); });
+  var holidaysHtml = holidayYears.length
+    ? holidayYears.map(function(y){
+        return '<div style="margin-bottom:6px;"><span class="muted" style="font-size:12px;font-weight:700;">'+y+'</span> '
+          + extraHolidays.filter(function(h){ return h.slice(0,4)===y; }).map(function(h){
+              return '<span class="pill" style="margin:2px;">'+ruDate(h).slice(0,5)+' <button class="ghost small" style="padding:0 0 0 4px;" data-holiday-del="'+h+'">✕</button></span>';
+            }).join('')
+          + ' <button class="ghost small" data-holiday-year-del="'+y+'" title="Удалить все добавленные даты этого года">✕ весь год</button></div>';
+      }).join('')
+    : '<div class="small-note">Дополнительных дат пока нет — работают только стандартные праздники и выходные.</div>';
   var years = planYears(state);
   var wdHtml = years.map(function(y){
-    var wd = [];
-    for(var m=1;m<=12;m++){ wd.push({m:m, total: workingDaysInMonth(y,m,state), first: workingDaysInHalf(y,m,'first',state), second: workingDaysInHalf(y,m,'second',state)}); }
     var openWd = !!ui.openWdYears[y];
+    var rows = '';
+    for(var m=1;m<=12;m++){
+      var ym = wdKey(y,m);
+      var ov = wdOverrideFor(state,y,m) || {};
+      var calFirst = workingDaysInHalfCalendar(y,m,'first',state), calSecond = workingDaysInHalfCalendar(y,m,'second',state);
+      var first = workingDaysInHalf(y,m,'first',state), second = workingDaysInHalf(y,m,'second',state);
+      var edited = ov.first!=null || ov.second!=null;
+      rows += '<tr'+(edited?' style="background:var(--surface-2);"':'')+'><td>'+MONTH_NAMES[m]+'</td>'
+        + '<td class="num"><input type="text" inputmode="numeric" class="num" style="max-width:64px;padding:4px 6px;min-height:0;" data-wd-edit data-ym="'+ym+'" data-half="first" value="'+first+'" title="по календарю '+calFirst+'"></td>'
+        + '<td class="num"><input type="text" inputmode="numeric" class="num" style="max-width:64px;padding:4px 6px;min-height:0;" data-wd-edit data-ym="'+ym+'" data-half="second" value="'+second+'" title="по календарю '+calSecond+'"></td>'
+        + '<td class="num">'+(first+second)+'</td>'
+        + '<td>'+(edited ? '<button class="ghost small" data-wd-reset="'+ym+'" title="Вернуть значения по календарю">↺</button>' : '')+'</td></tr>';
+    }
     return '<div class="period-card'+(openWd?' open':'')+'" style="margin-bottom:6px;">'
       + '<div class="period-head" data-toggle-wd-year="'+y+'" style="padding:8px 12px;"><span class="chev">▸</span><b style="font-size:13px;">'+y+'</b></div>'
       + '<div class="period-body" style="padding:8px 12px 12px;">'
-      + '<table class="wd-table"><tr><th>Месяц</th><th class="num">1-я пол.</th><th class="num">2-я пол.</th><th class="num">Всего</th></tr>'
-      + wd.map(function(r){ return '<tr><td>'+MONTH_NAMES[r.m]+'</td><td class="num">'+r.first+'</td><td class="num">'+r.second+'</td><td class="num">'+r.total+'</td></tr>'; }).join('')
-      + '</table></div></div>';
+      + '<div class="table-scroll"><table class="wd-table"><tr><th>Месяц</th><th class="num">1-я пол.</th><th class="num">2-я пол.</th><th class="num">Всего</th><th></th></tr>'
+      + rows
+      + '</table></div>'
+      + '<div class="small-note">Значения можно исправить вручную — тогда аванс и зарплата этого месяца считаются по вписанному числу дней. Исправленные месяцы подсвечены; «↺» возвращает расчёт по календарю.</div>'
+      + '</div></div>';
   }).join('');
   var maxYear = years.length ? years[years.length-1] : 2027;
   var yearsListHtml = years.map(function(y){
@@ -2249,7 +2365,7 @@ function renderSettings(sim){
       '<button class="small" data-add-year>+ добавить '+(maxYear+1)+' год</button>',
       ''
     + '<div style="margin-bottom:8px;">' + yearsListHtml + '</div>'
-    + '<div class="info-box">При добавлении нового года создаются выплаты: аванс 20-го числа (за 1–15 число) и зарплата 5-го числа следующего месяца (за 16-е – конец месяца). Если дата выпадает на выходной или праздник, выплата ставится на ближайший рабочий день раньше. Сумма «на руки» считается по окладу, действовавшему в отработанные дни, по числу отработанных дней (без отпусков и больничных) и НДФЛ нарастающим итогом за календарный год. Стандартные праздники (1–8 января, 23 февраля, 8 марта, 1 и 9 мая, 12 июня, 4 ноября) добавляются в календарь автоматически — переносы выходных добавьте вручную ниже. Уже прошедшие периоды фиксируются автоматически по сегодняшней дате и не пересчитываются при изменении настроек — см. кнопку «🔒 Зафиксировать» на вкладке «Доходы». Крестик рядом с годом выше удаляет все его периоды из плана (с подтверждением, если они уже есть).</div>')
+    + '<div class="info-box">При добавлении нового года создаются выплаты: аванс 20-го числа (за 1–15 число) и зарплата 5-го числа следующего месяца (за 16-е – конец месяца). Если дата выпадает на выходной или праздник, выплата ставится на ближайший рабочий день раньше. Сумма «на руки» считается по окладу, действовавшему в отработанные дни, по числу отработанных дней (без отпусков и больничных) и НДФЛ нарастающим итогом за календарный год. Стандартные праздники (1–8 января, 23 февраля, 8 марта, 1 и 9 мая, 12 июня, 4 ноября) учитываются нерабочими во всех годах сразу — переносы выходных добавьте в производственном календаре ниже. Уже прошедшие периоды фиксируются автоматически по сегодняшней дате и не пересчитываются при изменении настроек — см. кнопку «🔒 Зафиксировать» на вкладке «Доходы». Крестик рядом с годом выше удаляет все его периоды из плана (с подтверждением, если они уже есть).</div>')
 
     + settingsSection('oklad', 'Оклад',
       '<button class="small" data-add-oklad>+ повышение</button>',
@@ -2271,14 +2387,19 @@ function renderSettings(sim){
 
     + settingsSection('calendar', 'Производственный календарь', '',
       ''
-    + '<div class="info-box" style="margin-bottom:10px;">Официальный производственный календарь на 2027 год ещё не опубликован Правительством РФ. Ниже — оценка на основе стандартных праздничных дат (без переноса выходных). Когда календарь опубликуют, скорректируйте список праздников. Список ниже общий на все года плана; при добавлении нового года стандартные праздники для него добавляются автоматически, переносы выходных внесите сами.</div>'
+    + '<div class="info-box" style="margin-bottom:10px;">Стандартные праздники — 1–8 января, 23 февраля, 8 марта, 1 и 9 мая, 12 июня, 4 ноября — учитываются нерабочими <b>во всех годах</b> плана, хранить их в списке не нужно. Ниже добавляйте только дополнительные нерабочие дни: переносы выходных и особые даты конкретного года. Можно добавить сразу диапазон — укажите «с» и «по». Выходные и стандартные праздники внутри диапазона пропускаются. Если официальный календарь считает иначе, поправьте число рабочих дней месяца вручную в таблице ниже.</div>'
     + '<div style="margin-bottom:10px;">' + holidaysHtml + '</div>'
-    + '<div class="row" style="gap:6px;max-width:260px;"><input type="date" id="new-holiday-date"><button class="small" data-add-holiday>Добавить</button></div>'
+    + '<div class="row wrap" style="gap:8px;align-items:flex-end;">'
+    + '<div class="field" style="max-width:170px;"><label>Нерабочие дни: с</label><input type="date" id="new-holiday-date"></div>'
+    + '<div class="field" style="max-width:170px;"><label>по (необязательно)</label><input type="date" id="new-holiday-date-to"></div>'
+    + '<button class="small" data-add-holiday>Добавить</button>'
+    + '</div>'
+    + '<div id="holiday-add-note" class="small-note">'+esc(holidayAddNote)+'</div>'
     + '<hr class="sep">' + wdHtml)
 
     + settingsSection('about', 'О расчётах в этом инструменте', '',
       '<div class="info-box">'
-    + '• <b>Аванс/зарплата</b>: средний заработок за рабочий день = оклад ÷ рабочих дней в месяце; сумма периода = средний заработок × отработанные дни в 1-й (1–15) или 2-й (16 – конец месяца) половине месяца. Отработанные — рабочие дни по календарю выше, кроме дней отпусков и больничных; для каждого дня берётся оклад, действовавший в этот день (последняя по дате запись).<br>'
+    + '• <b>Производственный календарь</b>: нерабочими считаются выходные, стандартные праздники (одни и те же для всех лет) и добавленные вручную даты. Число рабочих дней месяца можно исправить вручную — тогда расчёт идёт по нему.<br>• <b>Аванс/зарплата</b>: средний заработок за рабочий день = оклад ÷ рабочих дней в месяце; сумма периода = средний заработок × отработанные дни в 1-й (1–15) или 2-й (16 – конец месяца) половине месяца. Отработанные — рабочие дни по календарю выше, кроме дней отпусков и больничных; для каждого дня берётся оклад, действовавший в этот день (последняя по дате запись).<br>'
     + '• <b>НДФЛ и «на руки»</b>: налог считается нарастающим итогом за календарный год выплаты по прогрессивной шкале выше — в годовой доход по порядку дат входят все выплаты этого года (зарплата и отпускные). Чем больше уже получено в году, тем выше ставка на следующий рубль.<br>'
     + '• <b>Отпускные</b>: средний дневной заработок = сумма дохода за 12 месяцев до отпуска ÷ сумма коэффициентов (29.3 на полностью отработанный месяц, пропорционально меньше — если в месяце были больничные); отпускные = средний дневной заработок × число календарных дней отпуска. При повышении оклада внутри 12-месячного окна более ранние месяцы индексируются пропорционально. Доход, который вы вписываете по периодам и за 2026 год, должен быть <b>без отпускных</b> — они прибавляются к доходу выплаты автоматически из раздела «Отпуска» — пропорционально дням отпуска, попавшим в расчётный период выплаты и не должны попадать в поле «Доход на руки» повторно.<br>'
     + '• <b>Сезонные категории</b>: категорию или отдельную статью можно ограничить датами (например 01.12–20.03) — тогда сумма учитывается только в периоды внутри этого диапазона, в остальное время не расходуется.<br>'
@@ -2806,8 +2927,45 @@ function attachEvents(sim){
 
   /* holidays */
   root.querySelectorAll('[data-add-holiday]').forEach(function(b){ b.addEventListener('click', function(){
-    var inp = document.getElementById('new-holiday-date');
-    if(inp && inp.value && state.meta.holidays.indexOf(inp.value)===-1){ state.meta.holidays.push(inp.value); scheduleSave(); }
+    var from = document.getElementById('new-holiday-date');
+    var to = document.getElementById('new-holiday-date-to');
+    var note = document.getElementById('holiday-add-note');
+    if(!from || !from.value){ holidayAddNote = 'Укажите дату (или начало диапазона).'; if(note) note.textContent = holidayAddNote; return; }
+    var start = from.value, end = (to && to.value) ? to.value : from.value;
+    if(end < start){ var t = start; start = end; end = t; }
+    var set = new Set(state.meta.holidays), added = 0, skipped = 0, d = start, guard = 0;
+    while(d <= end && guard++ < 400){
+      var y=parseInt(d.slice(0,4),10), m=parseInt(d.slice(5,7),10), dd=parseInt(d.slice(8,10),10);
+      if(isWorkingDay(y,m,dd,set)){ state.meta.holidays.push(d); set.add(d); added++; }
+      else skipped++;
+      d = addDaysISO(d,1);
+    }
+    holidayAddNote = 'Добавлено дат: '+added+(skipped?', пропущено (выходные и стандартные праздники): '+skipped:'');
+    if(note) note.textContent = holidayAddNote;
+    if(added) scheduleSave(); else render();
+  }); });
+  root.querySelectorAll('[data-holiday-year-del]').forEach(function(b){ b.addEventListener('click', function(){
+    var y = b.getAttribute('data-holiday-year-del');
+    if(!confirm('Удалить все добавленные нерабочие даты '+y+' года?')) return;
+    state.meta.holidays = state.meta.holidays.filter(function(h){ return h.slice(0,4)!==y; });
+    scheduleSave();
+  }); });
+  bindChange('[data-wd-edit]', function(el){
+    var ym = el.getAttribute('data-ym'), half = el.getAttribute('data-half');
+    var y = parseInt(ym.slice(0,4),10), m = parseInt(ym.slice(5,7),10);
+    var dim = daysInMonth(y,m);
+    var maxDays = half==='first' ? 15 : dim-15;
+    var val = Math.max(0, Math.min(maxDays, parseNum(el.value)));
+    var cal = workingDaysInHalfCalendar(y,m,half,state);
+    if(!state.debts.workingDays) state.debts.workingDays = {};
+    var all = state.debts.workingDays, cur = all[ym] || {};
+    if(val===cal) delete cur[half]; else cur[half] = val;
+    if(Object.keys(cur).length) all[ym] = cur; else delete all[ym];
+  });
+  root.querySelectorAll('[data-wd-reset]').forEach(function(b){ b.addEventListener('click', function(){
+    var ym = b.getAttribute('data-wd-reset');
+    if(state.debts.workingDays) delete state.debts.workingDays[ym];
+    scheduleSave();
   }); });
   root.querySelectorAll('[data-holiday-del]').forEach(function(b){ b.addEventListener('click', function(){
     var d = b.getAttribute('data-holiday-del'); state.meta.holidays = state.meta.holidays.filter(function(h){return h!==d;}); scheduleSave();
