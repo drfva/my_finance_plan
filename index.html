@@ -92,6 +92,21 @@ td.num,th.num{text-align:right;font-family:var(--font-mono);}
 .tag-input-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;}
 .wd-table td,.wd-table th{padding:4px 6px;}
 .small-note{font-size:11px;color:var(--muted);margin-top:4px;}
+input:disabled,select:disabled{background:var(--surface-2);color:var(--muted);cursor:not-allowed;}
+.topbar-right{display:flex;align-items:baseline;gap:12px;margin-left:auto;}
+.today-date{font-size:13px;color:var(--muted);}
+.today-date b{color:var(--ink);font-weight:600;}
+.period-card.past{opacity:.62;transition:opacity .15s;}
+.period-card.past:hover,.period-card.past.open{opacity:1;}
+.period-card.past .period-head{background:var(--surface-2);}
+.past-toggle{width:100%;text-align:left;background:var(--surface-2);border:1px dashed var(--line);color:var(--muted);padding:9px 14px;border-radius:12px;}
+.past-toggle:hover{color:var(--ink);}
+.upcoming-divider{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;margin:4px 0;}
+.upcoming-divider::before,.upcoming-divider::after{content:'';flex:1;border-top:1px solid var(--line);}
+.modal-backdrop{position:fixed;inset:0;background:rgba(20,24,19,.45);z-index:50;display:flex;align-items:center;justify-content:center;padding:16px;}
+.modal{background:var(--surface);border:1px solid var(--line);border-radius:14px;max-width:520px;width:100%;max-height:90vh;overflow:auto;padding:18px;box-shadow:0 12px 40px rgba(0,0,0,.25);}
+.redist-row{display:grid;grid-template-columns:1fr 130px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);}
+.redist-row .hint{font-size:11px;color:var(--muted);}
 ::selection{background:var(--accent-soft);}
 </style>
 </head><body>
@@ -243,7 +258,7 @@ async function loadStateFromDB(){
   if(!s.ui.openWdYears) s.ui.openWdYears = {};
   if(!s.ndfl) s.ndfl = clone(DEFAULT_STATE.ndfl);
   (s.goals||[]).forEach(function(g){ if(!g.subgoals) g.subgoals=[]; });
-  (s.periods||[]).forEach(function(p){ if(p.locked===undefined) p.locked=false; if(!p.extraIncomes) p.extraIncomes=[]; });
+  (s.periods||[]).forEach(function(p){ if(p.locked===undefined) p.locked=false; });
   state = s;
 }
 
@@ -364,6 +379,40 @@ function generateYearPeriods(year, st){
   out.sort(function(a,b){return a.date<b.date?-1:1;});
   return out;
 }
+/* ручные периоды: calc==='manual' (доход вводится вручную, не по окладу) */
+function isManualPeriod(p){ return p.calc==='manual'; }
+function periodLabelFromDate(iso){ var parts = iso.split('-'); return parts[2]+'.'+parts[1]; }
+function defaultMonthRefFor(dateISO, type){
+  var y = parseInt(dateISO.slice(0,4),10), m = parseInt(dateISO.slice(5,7),10);
+  if(type==='zp'){ m--; if(m===0){ m=12; y--; } }
+  return y+'-'+pad2(m);
+}
+var newPeriodDraft = null;
+function freshPeriodDraft(){
+  var d = todayISO();
+  return { date:d, type:'avans', month:defaultMonthRefFor(d,'avans'), monthTouched:false, income:'', note:'' };
+}
+function addManualPeriod(draft, st){
+  var mm = String(draft.month||'').match(/^(\d{4})-(\d{2})$/);
+  if(!draft.date) return 'Укажите дату выплаты.';
+  if(!mm) return 'Укажите месяц, за который выплата.';
+  var y = parseInt(mm[1],10), m = parseInt(mm[2],10);
+  var half = draft.type==='avans' ? 'first' : 'second';
+  var dup = st.periods.find(function(p){ return p.monthRef.y===y && p.monthRef.m===m && p.half===half; });
+  if(dup && !confirm((draft.type==='avans'?'Аванс':'Зарплата')+' за '+MONTH_NAMES[m].toLowerCase()+' '+y+' уже есть (выплата '+ruDate(dup.date)+'). Всё равно добавить ещё один период?')) return '';
+  var p = { id:uid('p'), date:draft.date, label:periodLabelFromDate(draft.date), type:draft.type, half:half,
+    monthRef:{y:y,m:m}, calc:'manual', incomeActual:parseNum(draft.income), assignedVacations:[],
+    /* прошедший ручной период сразу фиксируется без распределения по копилкам —
+       иначе авто-расчёт задним числом «положил» бы его остаток в цели */
+    locked: draft.date < todayISO() };
+  if(draft.note && draft.note.trim()) p.note = draft.note.trim();
+  st.periods.push(p);
+  st.periods.sort(function(a,b){ return a.date<b.date?-1:1; });
+  st.ui.selectedYear = y;
+  st.ui.openPeriods[p.id] = true;
+  return null;
+}
+
 function ensurePastPeriodsLocked(st){
   var today = todayISO();
   var toLock = st.periods.filter(function(p){ return !p.locked && p.date < today; });
@@ -426,8 +475,10 @@ function estimateMonthlyNet(grossMonthly, brackets){
 }
 function computeSalaryNetPlan(st){
   var periods = st.periods.slice().sort(function(a,b){ return a.date<b.date?-1:1; });
-  var cum = 0, byPeriod = {};
+  var cum = 0, cumYear = null, byPeriod = {};
   periods.forEach(function(p){
+    var payYear = p.date.slice(0,4);
+    if(payYear!==cumYear){ cum = 0; cumYear = payYear; }
     var gross = calcPeriodIncomeFormula(p, st);
     if(gross==null){ byPeriod[p.id]=null; return; }
     var r = netFromGross(gross, cum, st.ndfl.brackets);
@@ -444,9 +495,12 @@ function monthsBefore(y,m,count){
   return arr;
 }
 function monthlyIncomeFor(y,m,st){
-  if(y===2026 && m>=1 && m<=12) return st.income2026[m-1]||0;
-  var sum=0, found=false;
-  st.periods.forEach(function(p){ if(p.monthRef.y===y && p.monthRef.m===m){ sum+=p.incomeActual||0; found=true; } });
+  var sum=0, halves={};
+  st.periods.forEach(function(p){ if(p.monthRef.y===y && p.monthRef.m===m){ sum+=p.incomeActual||0; halves[p.half]=true; } });
+  var found = !!(halves.first || halves.second);
+  /* 2026: если за месяц вручную добавлены оба периода (аванс + зарплата) — берём их сумму,
+     иначе — значение из «Настройки → Доходы за 2026 год» */
+  if(y===2026 && m>=1 && m<=12 && !(halves.first && halves.second)) return st.income2026[m-1]||0;
   return found?sum:0;
 }
 function sickDaysInMonth(y,m,st){
@@ -614,26 +668,31 @@ function simulate(st){
     }
   }
 
+  /* Траты (amount > 0) и переводы из других копилок (amount < 0) применяются в порядке дат:
+     всё, что случилось после предыдущей выплаты и не позже текущей, учитывается на дату текущей
+     выплаты — до распределения её остатка. Трата 21.04 уменьшает копилку уже на выплату 05.05. */
+  var initialPhase = { idx: clone(phaseIdx), saved: clone(phaseSaved) };
+  var allWd = [];
+  st.goals.forEach(function(g){
+    (g.withdrawals||[]).forEach(function(w){ if(w.date) allWd.push({ gid:g.id, date:w.date, amount:w.amount||0 }); });
+  });
+  allWd.sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); });
+  var wdPtr = 0;
+  function applyWithdrawalsUpTo(dateISO){
+    while(wdPtr<allWd.length && (dateISO===null || allWd[wdPtr].date<=dateISO)){
+      var w = allWd[wdPtr++];
+      if(w.amount>=0) goalSaved[w.gid]=(goalSaved[w.gid]||0)-w.amount;
+      else depositToGoal(w.gid, -w.amount, w.date);
+    }
+  }
+
   var rows=[];
   periods.forEach(function(p){
     var salary = p.incomeActual||0;
     var vac = vacationPayForPeriod(p, st);
-    /* manual/ad-hoc income (bonus, gift, etc): the full amount joins totalIncome, while the
-       portion marked expensesPct% is folded into this period's expenses so it doesn't flow
-       into the savings waterfall — the remaining (100-expensesPct)% stays part of "free" and
-       gets allocated to goals exactly like any other free cash. */
-    var extraTotal = 0, extraExpensePortion = 0;
-    (p.extraIncomes||[]).forEach(function(e){
-      var amt = e.amount||0;
-      var pct = e.expensesPct!=null ? e.expensesPct : 0;
-      extraTotal += amt;
-      extraExpensePortion += amt*pct/100;
-    });
-    var totalIncome = salary+vac+extraTotal;
-    var expenses = categoriesTotalForPeriod(p, st) + extraExpensePortion;
-    st.goals.forEach(function(g){
-      (g.withdrawals||[]).forEach(function(w){ if(w.date===p.date) goalSaved[g.id]-=w.amount; });
-    });
+    var totalIncome = salary+vac;
+    var expenses = categoriesTotalForPeriod(p, st);
+    applyWithdrawalsUpTo(p.date);
     var free = totalIncome - expenses;
     var allocations = {};
     var override = st.savingsOverrides[p.id];
@@ -714,9 +773,164 @@ function simulate(st){
       }
     }
     rows.push({ period:p, salary:salary, vacationPay:vac, totalIncome:totalIncome, expenses:expenses,
-      free: totalIncome-expenses, unallocated: free, allocations: allocations, goalSnapshot: clone(goalSaved) });
+      free: totalIncome-expenses, unallocated: free, allocations: allocations, goalSnapshot: clone(goalSaved),
+      phaseSnapshot: { idx: clone(phaseIdx), saved: clone(phaseSaved) } });
   });
-  return { rows: rows, finalGoalSaved: goalSaved, milestoneDates: milestoneDates, finalPhaseIdx: phaseIdx, finalPhaseSaved: phaseSaved };
+  applyWithdrawalsUpTo(null);
+  return { rows: rows, finalGoalSaved: goalSaved, milestoneDates: milestoneDates, finalPhaseIdx: phaseIdx, finalPhaseSaved: phaseSaved, initialPhase: initialPhase };
+}
+
+/* ============ состояние копилок на дату ============ */
+/* последняя выплата не позже даты (или null) */
+function lastRowAtOrBefore(sim, dateISO){
+  var found = null;
+  sim.rows.forEach(function(r){ if(r.period.date<=dateISO) found = r; });
+  return found;
+}
+/* сколько денег в копилке на дату: баланс после последней выплаты ≤ даты
+   плюс/минус траты и переводы, случившиеся после неё и не позже даты */
+function goalBalanceAt(g, sim, dateISO){
+  var row = lastRowAtOrBefore(sim, dateISO);
+  var bal = row ? (row.goalSnapshot[g.id]||0) : (g.startingBalance||0);
+  var after = row ? row.period.date : '';
+  (g.withdrawals||[]).forEach(function(w){
+    if(w.date && w.date>after && w.date<=dateISO) bal -= (w.amount||0);
+  });
+  return bal;
+}
+/* сколько цели ещё не хватает до общей суммы на дату, и ближайший срок её незакрытых этапов */
+function goalNeedAt(g, sim, dateISO){
+  var ms = goalMilestones(g);
+  var row = lastRowAtOrBefore(sim, dateISO);
+  var ph = row ? row.phaseSnapshot : sim.initialPhase;
+  var idx = (ph.idx[g.id]||0), saved = (ph.saved[g.id]||0);
+  var progress = 0;
+  for(var i=0;i<idx && i<ms.length;i++) progress += ms[i].target||0;
+  if(idx<ms.length) progress += saved;
+  var after = row ? row.period.date : '';
+  (g.withdrawals||[]).forEach(function(w){
+    if(w.date && w.amount<0 && w.date>after && w.date<=dateISO) progress += -w.amount;
+  });
+  var deadline = '';
+  for(var j=idx;j<ms.length;j++){ if(ms[j].deadline){ deadline = ms[j].deadline; break; } }
+  return { need: Math.max(0, goalFinalTarget(g)-progress), deadline: deadline };
+}
+
+/* ============ нормализация состояния перед отрисовкой ============ */
+/* подцели всегда идут по сроку закрытия: раньше срок — выше; без срока — в конце */
+function sortSubgoalsByDeadline(st){
+  var changed = false;
+  st.goals.forEach(function(g){
+    if(!g.subgoals || g.subgoals.length<2) return;
+    var sorted = g.subgoals.slice().sort(function(a,b){
+      var ka = a.deadline || '9999-99-99', kb = b.deadline || '9999-99-99';
+      return ka<kb?-1:(ka>kb?1:0);
+    });
+    for(var i=0;i<sorted.length;i++){ if(sorted[i]!==g.subgoals[i]){ changed = true; break; } }
+    if(changed) g.subgoals = sorted;
+  });
+  return changed;
+}
+/* месяцы 2026 года, за которые на вкладке «Доходы» есть и аванс, и зарплата: {месяц: сумма} */
+function income2026FromPeriods(st){
+  var acc = {};
+  st.periods.forEach(function(p){
+    if(p.monthRef.y!==2026) return;
+    var a = acc[p.monthRef.m] || (acc[p.monthRef.m] = { sum:0, first:false, second:false });
+    a.sum += p.incomeActual||0;
+    a[p.half] = true;
+  });
+  var out = {};
+  Object.keys(acc).forEach(function(m){ if(acc[m].first && acc[m].second) out[m] = acc[m].sum; });
+  return out;
+}
+/* переносим сумму периодов в «Доходы за 2026 год»; если периоды потом удалят,
+   в поле останется последнее перенесённое значение, и его снова можно править */
+function syncIncome2026(st){
+  var fromP = income2026FromPeriods(st), changed = false;
+  Object.keys(fromP).forEach(function(m){
+    var i = parseInt(m,10)-1;
+    if(st.income2026[i]!==fromP[m]){ st.income2026[i] = fromP[m]; changed = true; }
+  });
+  return changed;
+}
+
+/* ============ перераспределение остатка закрытой цели ============ */
+var redistDraft = null;
+/* Предложение: деньги получают незакрытые цели в порядке срочности (ближайший срок
+   незакрытого этапа — первой; без срока — после всех, между собой по приоритету),
+   каждая — не больше, чем ей ещё не хватает до общей суммы. Лишнее остаётся в копилке. */
+function proposeRedistribution(closedGoal, balance, dateISO, st, sim){
+  var cands = st.goals.filter(function(g){ return g.id!==closedGoal.id && !g.completed; }).map(function(g){
+    var n = goalNeedAt(g, sim, dateISO);
+    return { g:g, need:n.need, deadline:n.deadline };
+  });
+  cands.sort(function(a,b){
+    var ka = a.deadline || '9999-99-99', kb = b.deadline || '9999-99-99';
+    if(ka!==kb) return ka<kb?-1:1;
+    return a.g.priority-b.g.priority;
+  });
+  var left = Math.round(balance);
+  return cands.map(function(c){
+    var give = Math.max(0, Math.min(left, Math.round(c.need)));
+    left -= give;
+    return { goalId:c.g.id, name:c.g.name, need:Math.round(c.need), deadline:c.deadline, amount:give };
+  });
+}
+function openRedistribution(goalId){
+  var g = findGoal(goalId);
+  if(!g) return;
+  var sim = simulate(state);
+  var d = todayISO();
+  var bal = Math.round(goalBalanceAt(g, sim, d));
+  if(bal<=0) return;
+  redistDraft = { goalId:g.id, goalName:g.name, balance:bal, date:d, rows: proposeRedistribution(g, bal, d, state, sim) };
+  render();
+}
+function redistTotals(){
+  var total = redistDraft.rows.reduce(function(s,r){ return s+(r.amount||0); },0);
+  return { total: total, left: redistDraft.balance-total };
+}
+function renderRedistModal(){
+  if(!redistDraft) return '';
+  var d = redistDraft, t = redistTotals();
+  var rows = d.rows.map(function(r,i){
+    var hint = (r.need>0 ? 'не хватает '+fmt(r.need) : 'сумма уже набрана') + (r.deadline ? ', срок '+ruDate(r.deadline) : ', без срока');
+    return '<div class="redist-row"><div><b>'+esc(r.name)+'</b><div class="hint">'+hint+'</div></div>'
+      + '<input type="text" inputmode="numeric" class="num" data-redist-amount data-idx="'+i+'" value="'+r.amount+'"></div>';
+  }).join('');
+  return '<div class="modal-backdrop"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="redist-title">'
+    + '<h2 id="redist-title" style="font-size:17px;">Остаток в копилке «'+esc(d.goalName)+'»</h2>'
+    + '<p class="muted" style="margin:4px 0 12px;">На '+ruDate(d.date)+' в копилке <b class="num" style="color:var(--ink);">'+fmt(d.balance)+'</b>. '
+    + 'Предлагаю перевести их в другие цели — сначала в те, у которых срок ближе, и не больше, чем каждой не хватает. Суммы можно поменять.</p>'
+    + (d.rows.length ? rows : '<div class="muted">Нет других незакрытых целей.</div>')
+    + '<div class="row wrap" style="gap:8px;margin-top:12px;"><div style="flex:1;min-width:160px;"><label>Дата перевода</label><input type="date" data-redist-date value="'+esc(d.date)+'"></div></div>'
+    + '<div id="redist-summary" style="margin-top:10px;font-size:13px;">'+redistSummaryHtml(t)+'</div>'
+    + '<div class="row wrap" style="gap:8px;margin-top:14px;justify-content:flex-end;">'
+    + '<button class="small" data-redist-cancel>Оставить в копилке</button>'
+    + '<button class="primary small" data-redist-apply'+((t.left<0||t.total<=0)?' disabled':'')+'>Перевести '+fmt(t.total)+'</button>'
+    + '</div></div></div>';
+}
+function redistSummaryHtml(t){
+  if(t.left<0) return '<span style="color:var(--danger);">Распределено больше, чем есть в копилке, на '+fmt(-t.left)+'</span>';
+  return 'Распределено: <b class="num">'+fmt(t.total)+'</b>' + (t.left>0 ? ' · останется в копилке: <b class="num">'+fmt(t.left)+'</b>' : '');
+}
+function applyRedistribution(){
+  var d = redistDraft, t = redistTotals();
+  if(!d || t.left<0 || t.total<=0) return;
+  var src = findGoal(d.goalId);
+  if(!src) { redistDraft = null; return; }
+  if(!src.withdrawals) src.withdrawals = [];
+  src.withdrawals.push({ date:d.date, amount:t.total, note:'Перераспределение остатка в другие цели' });
+  d.rows.forEach(function(r){
+    if(!(r.amount>0)) return;
+    var g = findGoal(r.goalId);
+    if(!g) return;
+    if(!g.withdrawals) g.withdrawals = [];
+    /* пополнение хранится как «трата» с отрицательной суммой */
+    g.withdrawals.push({ date:d.date, amount:-r.amount, note:'Перевод из «'+d.goalName+'»' });
+  });
+  redistDraft = null;
 }
 
 /* ============ formatting ============ */
@@ -737,9 +951,13 @@ var ui;
 var root;
 function render(){
   if(!root) root = document.getElementById('root');
-  if(ensurePastPeriodsLocked(state)){
+  var changed = sortSubgoalsByDeadline(state);
+  changed = syncIncome2026(state) || changed;
+  changed = ensurePastPeriodsLocked(state) || changed;
+  if(changed){
     clearTimeout(publishTimer); saveStatus='pending'; publishTimer=setTimeout(doPublish,500);
   }
+  renderedDay = todayISO();
   var sim = simulate(state);
   var body = '';
   if(ui.tab==='dashboard') body = renderDashboard(sim);
@@ -750,15 +968,28 @@ function render(){
   root.innerHTML =
     '<div class="topbar"><div class="topbar-inner">'
     + '<div class="brand"><h1 style="font-size:19px;">Финансы</h1><span class="badge-year">'+esc(planYearsLabel(state))+'</span></div>'
-    + '<span class="savebadge" id="save-badge"></span>'
+    + '<div class="topbar-right"><span class="savebadge" id="save-badge"></span>'
+    + '<span class="today-date">Сегодня <b>'+esc(todayLong())+'</b></span></div>'
     + '</div>'
     + '<nav class="tabs">'
     + tabBtn('dashboard','Обзор') + tabBtn('periods','Доходы') + tabBtn('categories','Категории') + tabBtn('goals','Накопления') + tabBtn('settings','Настройки')
     + '</nav></div>'
-    + '<main>' + body + '</main>';
+    + '<main>' + body + '</main>'
+    + renderRedistModal();
   updateSaveBadge();
   attachEvents(sim);
 }
+var renderedDay = null;
+function todayLong(){
+  return new Date().toLocaleDateString('ru-RU', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+}
+/* после полуночи обновляем дату и деление выплат на прошедшие/будущие (не мешая вводу) */
+setInterval(function(){
+  if(!state || !root || renderedDay===todayISO()) return;
+  var a = document.activeElement;
+  if(a && (a.tagName==='INPUT' || a.tagName==='SELECT')) return;
+  render();
+}, 60000);
 function tabBtn(id,label){ return '<button data-tab="'+id+'" class="'+(ui.tab===id?'active':'')+'">'+label+'</button>'; }
 
 /* ---------- dashboard ---------- */
@@ -784,7 +1015,7 @@ function renderDashboard(sim){
     + state.goals.slice().sort(function(a,b){return a.priority-b.priority;}).map(function(g){
         var finalTarget = goalFinalTarget(g);
         var saved = goalCumulativeProgress(g, sim);
-        var potBalance = sim.finalGoalSaved[g.id]||0;
+        var potBalance = goalBalanceAt(g, sim, todayISO());
         var pctRaw = finalTarget>0 ? Math.round(saved/finalTarget*100) : 0;
         var pct = Math.max(0, Math.min(100, pctRaw));
         var st_ = goalOverallStatus(g, sim);
@@ -813,7 +1044,7 @@ function renderDashboard(sim){
           + '<div class="row between"><b>'+esc(g.name)+'</b><span class="pill '+st_.cls+'">'+st_.label+'</span></div>'
           + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:6px 0;"><i style="width:'+pct+'%"></i></div>'
           + '<div class="row between muted" style="font-size:12px;"><span class="num">'+fmt(saved)+' / '+fmt(finalTarget)+'</span><span>'+deadlineLabel+'</span></div>'
-          + (potBalance!==saved ? '<div class="muted" style="font-size:11px;">на счету сейчас: '+fmt(potBalance)+'</div>' : '')
+          + '<div class="muted" style="font-size:11px;">на счету сейчас: <span class="num">'+fmt(potBalance)+'</span></div>'
           + subRows
           + '</div>';
       }).join('')
@@ -836,28 +1067,78 @@ function statCard(label,val){
 }
 
 /* ---------- periods ---------- */
+function renderAddPeriodForm(){
+  if(!newPeriodDraft){
+    return '<div class="row between wrap" style="margin-bottom:12px;">'
+      + '<span class="muted" style="font-size:12px;">Нужен период, которого нет в плане, например прошлые выплаты 2026 года?</span>'
+      + '<button class="small" data-open-add-period>+ Добавить период вручную</button></div>';
+  }
+  var d = newPeriodDraft;
+  return '<div class="cat-card" style="margin-bottom:14px;">'
+    + '<div class="row between" style="margin-bottom:8px;"><b>Новый период</b><button class="ghost small" data-cancel-add-period>✕</button></div>'
+    + '<div class="grid cols-3">'
+    + '<div><label>Дата выплаты</label><input type="date" data-np="date" value="'+esc(d.date)+'"></div>'
+    + '<div><label>Тип выплаты</label><select data-np="type">'
+    + '<option value="avans"'+(d.type==='avans'?' selected':'')+'>Аванс</option>'
+    + '<option value="zp"'+(d.type==='zp'?' selected':'')+'>Зарплата</option></select></div>'
+    + '<div><label>За какой месяц</label><input type="month" data-np="month" value="'+esc(d.month)+'"></div>'
+    + '</div>'
+    + '<div class="grid cols-2" style="margin-top:10px;">'
+    + '<div><label>Доход на руки, ₽</label><input type="text" inputmode="numeric" class="num" data-np="income" value="'+esc(d.income)+'" placeholder="0"></div>'
+    + '<div><label>Комментарий (необязательно)</label><input type="text" data-np="note" value="'+esc(d.note)+'"></div>'
+    + '</div>'
+    + '<div class="small-note">Аванс — за 1-ю половину месяца, зарплата — за 2-ю; месяц подставляется по дате (зарплата 5-го числа — за прошлый месяц), при необходимости поправьте. Сумма — «на руки», без отпускных. Если дата уже прошла, период сразу фиксируется и его остаток не распределяется по копилкам автоматически — при желании впишите суммы в копилки вручную в карточке периода. Для расчёта отпускных месяц 2026 года берётся из периодов, только когда добавлены и аванс, и зарплата за него; иначе — из «Настройки → Доходы за 2026 год».</div>'
+    + '<div id="np-error" class="small-note" style="color:var(--danger);"></div>'
+    + '<div class="row" style="gap:8px;margin-top:10px;"><button class="primary small" data-submit-add-period>Добавить период</button><button class="small ghost" data-cancel-add-period>Отмена</button></div>'
+    + '</div>';
+}
 function renderPeriods(sim){
   var plan = computeSalaryNetPlan(state);
   var activeYear = currentYear(state);
   var yearRows = activeYear==null ? sim.rows : sim.rows.filter(function(r){ return r.period.monthRef.y===activeYear; });
   return yearTabsNav(state)
     + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Доходы и выплаты'+(activeYear!=null?' '+activeYear:'')+'</h2><span class="muted" style="font-size:12px;">аванс — за 1-ю половину месяца, зарплата — за 2-ю</span></div>'
+    + renderAddPeriodForm()
     + '<div style="display:flex;flex-direction:column;gap:8px;">'
-    + yearRows.map(function(r){ return renderPeriodCard(r, state, plan); }).join('')
+    + renderPeriodList(yearRows, plan)
     + (!yearRows.length ? '<div class="muted" style="font-size:12px;padding:8px 0;">Нет периодов в '+activeYear+' году</div>' : '')
     + '</div></div>';
 }
-function renderPeriodCard(r, st, plan){
+var showPastPeriods = false;
+/* сверху — последняя прошедшая выплата, ниже — будущие; более ранние спрятаны под плашкой */
+function renderPeriodList(rows, plan){
+  var today = todayISO();
+  var past = rows.filter(function(r){ return r.period.date<=today; });
+  var upcoming = rows.filter(function(r){ return r.period.date>today; });
+  var lastPast = past.length ? past[past.length-1] : null;
+  var earlier = past.slice(0, Math.max(0, past.length-1));
+  var html = '';
+  if(earlier.length){
+    html += '<button class="past-toggle" data-toggle-past>'
+      + (showPastPeriods ? '▾ Скрыть предыдущие выплаты' : '▸ Показать предыдущие выплаты')
+      + ' <span class="num">('+earlier.length+')</span></button>';
+    if(showPastPeriods) html += earlier.map(function(r){ return renderPeriodCard(r, state, plan, true); }).join('');
+  }
+  if(lastPast) html += renderPeriodCard(lastPast, state, plan, true);
+  if(lastPast && upcoming.length) html += '<div class="upcoming-divider">предстоящие выплаты</div>';
+  html += upcoming.map(function(r){ return renderPeriodCard(r, state, plan, false); }).join('');
+  return html;
+}
+function renderPeriodCard(r, st, plan, isPastCard){
   var p = r.period;
   var open = !!ui.openPeriods[p.id];
   var typeLabel = p.type==='avans' ? 'Аванс' : 'Зарплата';
   var pd = plan[p.id];
   var shortfall = r.free<0;
-  var dis = p.locked ? ' disabled' : '';
+  var manual = isManualPeriod(p);
+  var isPast = p.date < todayISO();
+  /* ручной период остаётся редактируемым и после фиксации: фиксация лишь отключает авто-распределение */
+  var dis = (p.locked && !manual) ? ' disabled' : '';
   var head = '<div class="period-head" data-toggle-period="'+p.id+'">'
     + '<span class="chev">▸</span>'
     + '<span class="period-date">'+p.label+'</span>'
     + '<span class="pill">'+typeLabel+'</span>'
+    + (manual ? '<span class="pill">вручную</span>' : '')
     + (p.locked ? '<span class="pill warn">🔒</span>' : '')
     + (r.vacationPay ? '<span class="pill ok">отпускные '+fmt(r.vacationPay)+'</span>' : '')
     + (shortfall ? '<span class="pill danger">дефицит</span>' : '')
@@ -878,19 +1159,31 @@ function renderPeriodCard(r, st, plan){
     return '<tr><td>'+esc(g.name)+'</td><td class="num"><input type="text" inputmode="numeric" class="num" data-alloc-override data-period="'+p.id+'" data-goal="'+g.id+'" value="'+Math.round(val)+'"'+dis+'></td><td class="num muted">'+fmt(bal)+'</td></tr>';
   }).join('');
   var hasOverride = !!(st.savingsOverrides[p.id] && Object.keys(st.savingsOverrides[p.id]).length);
-  var lockRow = '<div class="row between" style="margin-bottom:10px;">'
-    + (p.locked
-        ? '<span class="pill warn">🔒 Период зафиксирован — авто-расчёт его больше не трогает</span><button class="small ghost" data-unlock-period="'+p.id+'">Разблокировать</button>'
-        : '<span class="muted" style="font-size:12px;">Период открыт — доход, расходы и распределение пересчитываются автоматически</span><button class="small ghost" data-lock-period="'+p.id+'">🔒 Зафиксировать</button>')
-    + '</div>';
-  var extraHtml = (p.extraIncomes||[]).map(function(e,ei){
-    return '<div class="item-row" style="grid-template-columns:1fr 90px 70px auto;">'
-      + '<input type="text" placeholder="комментарий" data-extra-note data-period="'+p.id+'" data-idx="'+ei+'" value="'+esc(e.note||'')+'"'+dis+'>'
-      + '<input type="text" inputmode="numeric" class="num" data-extra-amount data-period="'+p.id+'" data-idx="'+ei+'" value="'+e.amount+'"'+dis+'>'
-      + '<input type="text" inputmode="numeric" class="num" data-extra-pct data-period="'+p.id+'" data-idx="'+ei+'" value="'+e.expensesPct+'" title="% суммы, уходящий на расходы; остальное — на цели"'+dis+'>'
-      + '<button class="ghost small" data-extra-del data-period="'+p.id+'" data-idx="'+ei+'"'+dis+'>✕</button>'
-      + '</div>';
-  }).join('');
+  var lockText, lockBtn;
+  if(p.locked){
+    lockText = manual
+      ? '<span class="pill warn">🔒 Авто-распределение по копилкам отключено — суммы в копилки вносятся вручную ниже</span>'
+      : '<span class="pill warn">🔒 Период зафиксирован — авто-расчёт его больше не трогает</span>';
+    /* прошедший период после разблокировки тут же фиксируется снова с авто-распределением,
+       поэтому для ручных прошедших периодов кнопку не показываем */
+    lockBtn = (manual && isPast) ? '' : '<button class="small ghost" data-unlock-period="'+p.id+'">Разблокировать</button>';
+  } else {
+    lockText = '<span class="muted" style="font-size:12px;">Период открыт — '+(manual?'расходы и распределение':'доход, расходы и распределение')+' пересчитываются автоматически</span>';
+    lockBtn = '<button class="small ghost" data-lock-period="'+p.id+'">🔒 Зафиксировать</button>';
+  }
+  var lockRow = '<div class="row between wrap" style="margin-bottom:10px;">' + lockText
+    + '<div class="row">' + lockBtn
+    + (manual ? '<button class="small ghost" data-del-period="'+p.id+'">✕ Удалить период</button>' : '')
+    + '</div></div>';
+  var monthRefVal = p.monthRef.y+'-'+pad2(p.monthRef.m);
+  var manualRow = manual ? '<div class="grid cols-2" style="margin-top:10px;">'
+    + '<div><label>Тип выплаты</label><select data-period-type data-period="'+p.id+'"'+dis+'>'
+    + '<option value="avans"'+(p.type==='avans'?' selected':'')+'>Аванс (1-я половина месяца)</option>'
+    + '<option value="zp"'+(p.type==='zp'?' selected':'')+'>Зарплата (2-я половина месяца)</option>'
+    + '</select></div>'
+    + '<div><label>За какой месяц</label><input type="month" data-period-month data-period="'+p.id+'" value="'+monthRefVal+'"'+dis+'>'
+    + '<div class="small-note">Определяет, в каком году и месяце учитывается доход.</div></div>'
+    + '</div>' : '';
   var body = '<div class="period-body">'
     + (p.note ? '<div class="small-note">'+esc(p.note)+'</div>' : '')
     + lockRow
@@ -900,24 +1193,21 @@ function renderPeriodCard(r, st, plan){
     + '<div><label>Отпускные в этом периоде</label><div class="num" style="padding:6px 0;">'+fmt(r.vacationPay)+'</div>'
     + '<div class="small-note">'+(p.assignedVacations&&p.assignedVacations.length ? 'из вкладки «Настройки → Отпуска»' : 'нет назначенных отпусков')+'</div></div>'
     + '</div>'
+    + manualRow
     + '<div class="grid cols-2" style="margin-top:10px;">'
     + '<div><label>Доход на руки (факт)</label><input type="text" inputmode="numeric" data-income-actual data-period="'+p.id+'" value="'+p.incomeActual+'"'+dis+'>'
-    + (pd!=null ? '<div class="small-note">по формуле: оклад gross '+fmt(pd.gross)+' − НДФЛ '+fmt(pd.tax)+' ≈ на руки '+fmt(pd.net)+'. Указывайте здесь зарплату «на руки» без отпускных — они учитываются отдельно.</div>' : '<div class="small-note">не рассчитывается (исторический период)</div>') + '</div>'
-    + '<div><label>Всего доход периода (с отпускными и доп. доходом)</label><div class="num" style="padding:6px 0;font-weight:700;">'+fmt(r.totalIncome)+'</div></div>'
+    + (pd!=null ? '<div class="small-note">по формуле: оклад gross '+fmt(pd.gross)+' − НДФЛ '+fmt(pd.tax)+' ≈ на руки '+fmt(pd.net)+'. Указывайте здесь зарплату «на руки» без отпускных — они учитываются отдельно.</div>' : '<div class="small-note">вводится вручную, по окладу не рассчитывается</div>') + '</div>'
+    + '<div><label>Всего доход периода (с отпускными)</label><div class="num" style="padding:6px 0;font-weight:700;">'+fmt(r.totalIncome)+'</div></div>'
     + '</div>'
-    + '<hr class="sep">'
-    + '<div class="row between"><b style="font-size:13px;">Дополнительный доход (разово)</b><button class="small ghost" data-add-extra-income="'+p.id+'"'+dis+'>+ доход</button></div>'
-    + (extraHtml ? '<div class="tag-input-grid" style="grid-template-columns:1fr 90px 70px auto;font-size:11px;color:var(--muted);margin-bottom:4px;"><span>Комментарий</span><span>Сумма</span><span>% на расходы</span><span></span></div>' + extraHtml
-        : '<div class="small-note">Разовый доход сверх обычной зарплаты — например премия или подарок. Сумма прибавляется к доходу периода; указанный процент от неё уходит на расходы, остальное распределяется по копилкам как обычный свободный остаток. Проценты подставляются по текущему соотношению расходы/доход периода и корректируются вручную.</div>')
     + '<hr class="sep">'
     + '<div class="row between"><b style="font-size:13px;">Расходы по категориям (переопределение периода)</b><span class="num muted">'+fmt(r.expenses)+'</span></div>'
     + '<table>'+catRows+'</table>'
     + '<hr class="sep">'
-    + '<div class="row between"><b style="font-size:13px;">Распределение по копилкам</b><button class="small ghost" data-clear-alloc-override="'+p.id+'"'+dis+'>'+(hasOverride?'Сбросить на авто-расчёт':'')+'</button></div>'
-    + '<table><tr><th>Цель</th><th class="num">Отложено</th><th class="num">Баланс копилки</th></tr>'+allocRows+'</table>'
+    + '<div class="row between"><b style="font-size:13px;">Распределение по копилкам</b><button class="small ghost" data-clear-alloc-override="'+p.id+'"'+dis+'>'+(hasOverride?(p.locked?'Обнулить':'Сбросить на авто-расчёт'):'')+'</button></div>'
+    + '<table><tr><th>Цель</th><th class="num">Отложено</th><th class="num">В копилке на '+p.label+'</th></tr>'+allocRows+'</table>'
     + (r.unallocated>0.5 ? '<div class="small-note">Нераспределённый остаток: '+fmt(r.unallocated)+'</div>' : '')
     + '</div>';
-  return '<div class="period-card'+(open?' open':'')+'" data-period-card="'+p.id+'">'+head+body+'</div>';
+  return '<div class="period-card'+(open?' open':'')+(isPastCard?' past':'')+'" data-period-card="'+p.id+'">'+head+body+'</div>';
 }
 
 /* ---------- categories ---------- */
@@ -977,17 +1267,22 @@ function renderGoals(sim){
     var hasSub = g.subgoals && g.subgoals.length;
     var finalTarget = goalFinalTarget(g);
     var saved = goalCumulativeProgress(g, sim);
-    var potBalance = sim.finalGoalSaved[g.id]||0;
+    var potBalance = goalBalanceAt(g, sim, todayISO());
     var pctRaw = finalTarget>0 ? Math.round(saved/finalTarget*100) : 0;
     var pct = Math.max(0, Math.min(100, pctRaw));
     var achievements = milestoneAchievements(g, sim);
-    var wdHtml = (g.withdrawals||[]).map(function(w,wi){
-      return '<div class="item-row">'
+    var wdHtml = '', inHtml = '';
+    (g.withdrawals||[]).forEach(function(w,wi){
+      var incoming = (w.amount||0) < 0;
+      var row = '<div class="item-row">'
         + '<input type="date" data-wd-date data-goal="'+g.id+'" data-idx="'+wi+'" value="'+w.date+'">'
-        + '<input type="text" inputmode="numeric" class="num" data-wd-amount data-goal="'+g.id+'" data-idx="'+wi+'" value="'+w.amount+'">'
+        + '<input type="text" inputmode="numeric" class="num" '+(incoming?'data-wd-in-amount':'data-wd-amount')+' data-goal="'+g.id+'" data-idx="'+wi+'" value="'+Math.abs(w.amount||0)+'">'
         + '<button class="ghost small" data-wd-del data-goal="'+g.id+'" data-idx="'+wi+'">✕</button>'
-        + '</div>';
-    }).join('');
+        + '</div>'
+        + (w.note ? '<div class="small-note" style="margin:-4px 0 6px;">'+esc(w.note)+'</div>' : '');
+      if(incoming) inHtml += row; else wdHtml += row;
+    });
+    var canRedistribute = g.completed && potBalance >= 1;
     var milestonesBlock;
     if(hasSub){
       var subRows = g.subgoals.map(function(sg,si){
@@ -1029,14 +1324,18 @@ function renderGoals(sim){
       + '</div></div>'
       + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:8px 0;"><i style="width:'+pct+'%"></i></div>'
       + '<div class="row between muted num" style="font-size:12px;">'+fmt(saved)+' / '+fmt(finalTarget)+' ('+pct+'%)</div>'
-      + (potBalance!==saved ? '<div class="muted" style="font-size:11px;">на счету сейчас: '+fmt(potBalance)+'</div>' : '')
+      + '<div class="muted" style="font-size:12px;">на счету сейчас ('+ruDate(todayISO())+'): <b class="num" style="color:var(--ink);">'+fmt(potBalance)+'</b></div>'
       + '<hr class="sep">'
       + milestonesBlock
-      + '<label class="row" style="margin-top:10px;align-items:center;gap:6px;"><input type="checkbox" style="width:auto;" data-goal-completed data-goal="'+g.id+'" '+(g.completed?'checked':'')+'> <span class="muted" style="font-size:12px;">цель выполнена / закрыта</span></label>'
+      + '<div class="row wrap between" style="margin-top:10px;gap:8px;">'
+      + '<label class="row" style="align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:0;"><input type="checkbox" style="width:auto;" data-goal-completed data-goal="'+g.id+'" '+(g.completed?'checked':'')+'> <span class="muted" style="font-size:12px;">цель выполнена / закрыта</span></label>'
+      + (canRedistribute ? '<button class="small" data-redistribute="'+g.id+'">Перераспределить остаток '+fmt(potBalance)+'</button>' : '')
+      + '</div>'
       + (hasSub ? '<div class="small-note">Начальный остаток: <input type="text" inputmode="numeric" class="num" style="display:inline-block;width:120px;" data-goal-start data-goal="'+g.id+'" value="'+g.startingBalance+'"></div>' : '')
       + '<hr class="sep">'
       + '<div class="row between"><b style="font-size:12px;">Траты из этой копилки</b><button class="small ghost" data-wd-add="'+g.id+'">+ трата</button></div>'
       + wdHtml
+      + (inHtml ? '<div class="row between" style="margin-top:8px;"><b style="font-size:12px;">Пополнения из других копилок</b></div>' + inHtml : '')
       + '</div>';
   }).join('');
   return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Цели накоплений</h2><button class="small" data-add-goal>+ цель</button></div>'
@@ -1062,8 +1361,13 @@ function renderSettings(sim){
       + '<button class="ghost small" data-ndfl-del data-idx="'+bi+'" '+(state.ndfl.brackets.length<2?'disabled':'')+'>✕</button>'
       + '</div>';
   }).join('');
+  var fromPeriods26 = income2026FromPeriods(state);
   var incomeHtml = '<div class="tag-input-grid">' + state.income2026.map(function(v,idx){
-    return '<div class="field"><label>'+MONTH_NAMES[idx+1]+' 2026</label><input type="text" inputmode="numeric" class="num" data-income26 data-idx="'+idx+'" value="'+v+'"></div>';
+    var locked = fromPeriods26[idx+1]!==undefined;
+    return '<div class="field"><label>'+MONTH_NAMES[idx+1]+' 2026</label>'
+      + '<input type="text" inputmode="numeric" class="num" data-income26 data-idx="'+idx+'" value="'+v+'"'+(locked?' disabled title="Сумма аванса и зарплаты с вкладки «Доходы»"':'')+'>'
+      + (locked ? '<div class="small-note">🔒 из периодов «Доходы»</div>' : '')
+      + '</div>';
   }).join('') + '</div>';
   var vacHtml = state.vacations.map(function(v){
     var formula = calcVacationPayFormula(v, state);
@@ -1123,7 +1427,7 @@ function renderSettings(sim){
     + ndflHtml + '</div>'
 
     + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Доходы за 2026 год</h2></div>'
-    + '<div class="info-box" style="margin-bottom:8px;">Нужны для расчёта среднего дневного заработка при отпусках в начале '+esc(planYearsLabel(state))+' года (используется скользящее окно 12 месяцев до отпуска — часть месяцев из 2026 года, часть из уже прошедших периодов). <b>Что именно вписывать:</b> одна сумма на весь месяц (не на выплату) — сложите аванс и зарплату за этот месяц вместе; сумма должна быть «на руки» (после вычета налога), точно как в поле «Доход на руки» у периодов; отпускные, если в этом месяце был отпуск, в эту сумму включать <b>не нужно</b> — отпускные не участвуют в расчёте среднего заработка по закону, только обычная зарплата.</div>'
+    + '<div class="info-box" style="margin-bottom:8px;">Нужны для расчёта среднего дневного заработка при отпусках в начале '+esc(planYearsLabel(state))+' года (используется скользящее окно 12 месяцев до отпуска — часть месяцев из 2026 года, часть из уже прошедших периодов). <b>Что именно вписывать:</b> одна сумма на весь месяц (не на выплату) — сложите аванс и зарплату за этот месяц вместе; сумма должна быть «на руки» (после вычета налога), точно как в поле «Доход на руки» у периодов; отпускные, если в этом месяце был отпуск, в эту сумму включать <b>не нужно</b> — отпускные не участвуют в расчёте среднего заработка по закону, только обычная зарплата. Если за месяц 2026 года на вкладке «Доходы» добавлены и аванс, и зарплата, их сумма подставляется сюда автоматически и поле закрывается для правки. Если эти периоды удалить, последняя сумма останется в поле и её снова можно менять.</div>'
     + incomeHtml + '</div>'
 
     + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Отпуска</h2><button class="small" data-add-vac>+ отпуск</button></div>' + vacHtml + '</div>'
@@ -1173,32 +1477,59 @@ function attachEvents(sim){
     var p = findPeriod(el.dataset.period);
     if(p && el.value){
       p.date = el.value;
-      var parts = el.value.split('-');
-      p.label = parts[2]+'.'+parts[1];
+      p.label = periodLabelFromDate(el.value);
     }
   });
-  root.querySelectorAll('[data-add-extra-income]').forEach(function(btn){
-    btn.addEventListener('click', function(){
-      if(btn.disabled) return;
-      var pid = btn.getAttribute('data-add-extra-income');
-      var p = findPeriod(pid);
-      if(p){
-        var freshSim = simulate(state);
-        var row = freshSim.rows.find(function(r){ return r.period.id===pid; });
-        var pct = (row && row.totalIncome>0) ? Math.round(row.expenses/row.totalIncome*100) : 50;
-        pct = Math.max(0, Math.min(100, pct));
-        if(!p.extraIncomes) p.extraIncomes=[];
-        p.extraIncomes.push({id:uid('extra'), amount:0, note:'', expensesPct:pct});
-        scheduleSave();
-      }
-    });
-  });
-  root.querySelectorAll('[data-extra-del]').forEach(function(b){ b.addEventListener('click', function(){
-    var p = findPeriod(b.dataset.period); if(p){ p.extraIncomes.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
+  /* manual periods: add form */
+  root.querySelectorAll('[data-open-add-period]').forEach(function(b){ b.addEventListener('click', function(){
+    newPeriodDraft = freshPeriodDraft(); render();
   }); });
-  bindChange('[data-extra-note]', function(el){ var p=findPeriod(el.dataset.period); if(p) p.extraIncomes[parseInt(el.dataset.idx,10)].note=el.value; });
-  bindChange('[data-extra-amount]', function(el){ var p=findPeriod(el.dataset.period); if(p) p.extraIncomes[parseInt(el.dataset.idx,10)].amount=parseNum(el.value); });
-  bindChange('[data-extra-pct]', function(el){ var p=findPeriod(el.dataset.period); if(p) p.extraIncomes[parseInt(el.dataset.idx,10)].expensesPct=Math.max(0,Math.min(100,parseNum(el.value))); });
+  root.querySelectorAll('[data-cancel-add-period]').forEach(function(b){ b.addEventListener('click', function(){
+    newPeriodDraft = null; render();
+  }); });
+  root.querySelectorAll('[data-np]').forEach(function(el){
+    var key = el.getAttribute('data-np');
+    var onEdit = function(){
+      if(!newPeriodDraft) return;
+      newPeriodDraft[key] = el.value;
+      if(key==='month') newPeriodDraft.monthTouched = true;
+      if((key==='date' || key==='type') && !newPeriodDraft.monthTouched && newPeriodDraft.date){
+        newPeriodDraft.month = defaultMonthRefFor(newPeriodDraft.date, newPeriodDraft.type);
+        var mEl = root.querySelector('[data-np="month"]');
+        if(mEl) mEl.value = newPeriodDraft.month;
+      }
+    };
+    el.addEventListener('input', onEdit);
+    el.addEventListener('change', onEdit);
+  });
+  root.querySelectorAll('[data-submit-add-period]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!newPeriodDraft) return;
+    var err = addManualPeriod(newPeriodDraft, state);
+    if(err===''){ return; }
+    if(err){ var e = document.getElementById('np-error'); if(e) e.textContent = err; return; }
+    newPeriodDraft = null;
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-del-period]').forEach(function(b){ b.addEventListener('click', function(){
+    var pid = b.getAttribute('data-del-period');
+    var p = findPeriod(pid);
+    if(!p) return;
+    if(!confirm('Удалить период '+ruDate(p.date)+' ('+(p.type==='avans'?'аванс':'зарплата')+' за '+MONTH_NAMES[p.monthRef.m].toLowerCase()+' '+p.monthRef.y+')?\n\nЕго доход, расходы и суммы в копилках удалятся безвозвратно.')) return;
+    state.periods = state.periods.filter(function(x){ return x.id!==pid; });
+    delete state.savingsOverrides[pid];
+    delete state.categoryOverrides[pid];
+    delete ui.openPeriods[pid];
+    scheduleSave();
+  }); });
+  bindChange('[data-period-type]', function(el){
+    var p = findPeriod(el.dataset.period);
+    if(p){ p.type = el.value==='zp' ? 'zp' : 'avans'; p.half = p.type==='avans' ? 'first' : 'second'; }
+  });
+  bindChange('[data-period-month]', function(el){
+    var p = findPeriod(el.dataset.period);
+    var mm = String(el.value||'').match(/^(\d{4})-(\d{2})$/);
+    if(p && mm){ p.monthRef = { y:parseInt(mm[1],10), m:parseInt(mm[2],10) }; ui.selectedYear = p.monthRef.y; }
+  });
   bindChange('[data-cat-override]', function(el){
     var pid = el.dataset.period, cid = el.dataset.cat;
     var p = findPeriod(pid);
@@ -1314,7 +1645,57 @@ function attachEvents(sim){
   bindChange('[data-goal-target]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.target=parseNum(el.value); });
   bindChange('[data-goal-deadline]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.deadline=el.value; });
   bindChange('[data-goal-start]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.startingBalance=parseNum(el.value); });
-  bindChange('[data-goal-completed]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.completed=el.checked; });
+  root.querySelectorAll('[data-goal-completed]').forEach(function(el){
+    el.addEventListener('change', function(){
+      var g = findGoal(el.dataset.goal);
+      if(!g) return;
+      g.completed = el.checked;
+      if(g.completed){
+        var bal = goalBalanceAt(g, simulate(state), todayISO());
+        var others = state.goals.some(function(x){ return x.id!==g.id && !x.completed; });
+        if(bal>=1 && others){ openRedistribution(g.id); }
+      }
+      scheduleSave();
+    });
+  });
+  root.querySelectorAll('[data-redistribute]').forEach(function(b){ b.addEventListener('click', function(){
+    openRedistribution(b.getAttribute('data-redistribute'));
+  }); });
+  /* окно перераспределения */
+  function refreshRedistSummary(){
+    var t = redistTotals();
+    var sum = document.getElementById('redist-summary');
+    if(sum) sum.innerHTML = redistSummaryHtml(t);
+    var btn = root.querySelector('[data-redist-apply]');
+    if(btn){ btn.disabled = (t.left<0 || t.total<=0); btn.textContent = 'Перевести '+fmt(t.total); }
+  }
+  root.querySelectorAll('[data-redist-amount]').forEach(function(el){
+    el.addEventListener('input', function(){
+      if(!redistDraft) return;
+      redistDraft.rows[parseInt(el.dataset.idx,10)].amount = Math.max(0, parseNum(el.value));
+      refreshRedistSummary();
+    });
+  });
+  root.querySelectorAll('[data-redist-date]').forEach(function(el){
+    el.addEventListener('change', function(){
+      if(!redistDraft || !el.value) return;
+      /* на другую дату остаток и потребности целей другие — пересчитываем предложение */
+      var g = findGoal(redistDraft.goalId), sim = simulate(state);
+      redistDraft.date = el.value;
+      redistDraft.balance = Math.max(0, Math.round(goalBalanceAt(g, sim, el.value)));
+      redistDraft.rows = proposeRedistribution(g, redistDraft.balance, el.value, state, sim);
+      render();
+    });
+  });
+  root.querySelectorAll('[data-redist-cancel]').forEach(function(b){ b.addEventListener('click', function(){
+    redistDraft = null; render();
+  }); });
+  root.querySelectorAll('[data-redist-apply]').forEach(function(b){ b.addEventListener('click', function(){
+    applyRedistribution(); scheduleSave();
+  }); });
+  root.querySelectorAll('[data-toggle-past]').forEach(function(b){ b.addEventListener('click', function(){
+    showPastPeriods = !showPastPeriods; render();
+  }); });
   root.querySelectorAll('[data-wd-add]').forEach(function(b){ b.addEventListener('click', function(){
     var g=findGoal(b.getAttribute('data-wd-add')); if(g){ g.withdrawals.push({date:'2027-01-05',amount:0,note:''}); scheduleSave(); }
   }); });
@@ -1322,7 +1703,8 @@ function attachEvents(sim){
     var g=findGoal(b.dataset.goal); if(g){ g.withdrawals.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
   }); });
   bindChange('[data-wd-date]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.withdrawals[parseInt(el.dataset.idx,10)].date=el.value; });
-  bindChange('[data-wd-amount]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.withdrawals[parseInt(el.dataset.idx,10)].amount=parseNum(el.value); });
+  bindChange('[data-wd-amount]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.withdrawals[parseInt(el.dataset.idx,10)].amount=Math.abs(parseNum(el.value)); });
+  bindChange('[data-wd-in-amount]', function(el){ var g=findGoal(el.dataset.goal); if(g) g.withdrawals[parseInt(el.dataset.idx,10)].amount=-Math.abs(parseNum(el.value)); });
 
   /* goal subgoals (milestones) */
   root.querySelectorAll('[data-sub-add]').forEach(function(b){ b.addEventListener('click', function(){
