@@ -216,20 +216,46 @@ h2[style*="font-size:15px"]{font-size:24px!important;font-weight:800;margin:4px 
 </style>
 </head><body>
 <div id="root"></div>
-<div id="login-screen" style="display:none;max-width:320px;margin:60px auto;padding:20px;font-family:sans-serif;">
-  <h2>Вход</h2>
-  <div style="display:flex;flex-direction:column;gap:8px;">
-    <input id="login-email" type="email" placeholder="Email" style="padding:8px;">
-    <input id="login-password" type="password" placeholder="Пароль" style="padding:8px;">
-    <button id="login-btn" style="padding:8px;">Войти</button>
-    <div id="login-error" style="color:#b0453f;font-size:12px;"></div>
+<div id="login-screen" style="display:none;max-width:360px;margin:60px auto;padding:24px;">
+  <h2 style="margin-bottom:14px;">Вход</h2>
+  <div id="login-step" style="display:flex;flex-direction:column;gap:10px;">
+    <div class="field"><label>Email</label><input id="login-email" type="email" autocomplete="username"></div>
+    <div class="field"><label>Пароль</label><input id="login-password" type="password" autocomplete="current-password"></div>
+    <button id="login-btn" class="primary">Войти</button>
+    <button id="passkey-btn" style="display:none;">Войти по Face ID / Touch ID</button>
+    <button id="forgot-btn" class="ghost">Забыли пароль?</button>
   </div>
+  <div id="reset-step-1" style="display:none;flex-direction:column;gap:10px;">
+    <div class="small-note">Пришлём на почту ссылку для смены пароля. Перейдёте по ней — вернётесь сюда и зададите новый пароль.</div>
+    <div class="field"><label>Email</label><input id="reset-email" type="email" autocomplete="username"></div>
+    <button id="reset-send-btn" class="primary">Отправить ссылку</button>
+    <button id="reset-back-btn" class="ghost">Назад ко входу</button>
+  </div>
+  <div id="reset-step-2" style="display:none;flex-direction:column;gap:10px;">
+    <div class="small-note">Откройте письмо и перейдите по ссылке — вернётесь сюда уже с правом сменить пароль. Эту вкладку можно закрыть.</div>
+    <div class="small-note">Если в письме пришёл код (так бывает, когда подключён свой SMTP), введите его здесь вместе с новым паролем.</div>
+    <div class="field"><label>Код из письма (если есть)</label><input id="reset-code" inputmode="numeric" autocomplete="one-time-code"></div>
+    <div class="field"><label>Новый пароль</label><input id="reset-password" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Ещё раз</label><input id="reset-password2" type="password" autocomplete="new-password"></div>
+    <button id="reset-save-btn" class="primary">Сохранить пароль и войти</button>
+    <button id="reset-back-btn-2" class="ghost">Назад ко входу</button>
+  </div>
+  <div id="recovery-step" style="display:none;flex-direction:column;gap:10px;">
+    <div class="small-note">Вы перешли по ссылке из письма. Задайте новый пароль.</div>
+    <div class="field"><label>Новый пароль</label><input id="rec-password" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Ещё раз</label><input id="rec-password2" type="password" autocomplete="new-password"></div>
+    <button id="rec-save-btn" class="primary">Сохранить пароль</button>
+    <button id="rec-skip-btn" class="ghost">Пропустить и открыть план</button>
+  </div>
+  <div id="login-error" style="color:var(--danger);font-size:12.5px;margin-top:10px;"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+/* passkeys (Face ID / Touch ID) — экспериментальный API Supabase, включается явно */
 var supabaseClient = supabase.createClient(
     'https://crokwtmokshdankujdhx.supabase.co',
-    'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB'
+    'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB',
+    { auth: { experimental: { passkey: true } } }
   );
 </script>
 <script id="app-logic">
@@ -244,23 +270,111 @@ function hideLogin(){
   document.getElementById('root').style.display = '';
 }
 
+/* Бесплатный тариф Supabase не даёт править шаблоны писем: в письме приходит только ссылка.
+   Поэтому основной путь — переход по ссылке и смена пароля здесь же, а поле кода остаётся
+   запасным (сработает, если к проекту подключат свой SMTP и в шаблон добавят {{ .Token }}). */
+function appUrl(){ return location.origin + location.pathname; }
+function markRecoveryPending(on){
+  try{ if(on) localStorage.setItem('fin-recovery','1'); else localStorage.removeItem('fin-recovery'); }catch(e){}
+}
+function recoveryPending(){
+  try{ if(localStorage.getItem('fin-recovery')==='1') return true; }catch(e){}
+  return /type=recovery/.test(location.hash || '');
+}
+function cleanAuthUrl(){
+  try{ history.replaceState(null, '', appUrl()); }catch(e){}
+}
+/* если вернулись по ссылке восстановления — просим задать новый пароль до входа в план */
+function askNewPassword(){
+  var byId = function(id){ return document.getElementById(id); };
+  showLogin();
+  ['login-step','reset-step-1','reset-step-2'].forEach(function(id){ byId(id).style.display='none'; });
+  byId('recovery-step').style.display = 'flex';
+  var err = byId('login-error');
+  return new Promise(function(resolve){
+    function finish(){ markRecoveryPending(false); cleanAuthUrl(); hideLogin(); resolve(true); }
+    byId('rec-skip-btn').addEventListener('click', finish);
+    byId('rec-save-btn').addEventListener('click', function(){
+      var p1 = byId('rec-password').value, p2 = byId('rec-password2').value;
+      if(p1.length<6){ err.style.color='var(--danger)'; err.textContent='Пароль должен быть не короче 6 символов.'; return; }
+      if(p1!==p2){ err.style.color='var(--danger)'; err.textContent='Пароли не совпадают.'; return; }
+      err.style.color='var(--good)'; err.textContent='Сохраняем…';
+      supabaseClient.auth.updateUser({ password:p1 }).then(function(r){
+        if(r.error){ err.style.color='var(--danger)'; err.textContent='Не получилось: '+r.error.message; return; }
+        finish();
+      });
+    });
+  });
+}
+function passkeysSupported(){
+  return !!(window.PublicKeyCredential && supabaseClient.auth && supabaseClient.auth.signInWithPasskey);
+}
 function ensureSignedIn(){
   return supabaseClient.auth.getSession().then(function(res){
     if (res.data.session) { hideLogin(); return true; }
     showLogin();
     return new Promise(function(resolve){
-      document.getElementById('login-btn').addEventListener('click', function(){
-        var email = document.getElementById('login-email').value;
-        var password = document.getElementById('login-password').value;
-        supabaseClient.auth.signInWithPassword({ email: email, password: password })
-          .then(function(res2){
-            if (res2.error) {
-              document.getElementById('login-error').textContent = 'Ошибка: ' + res2.error.message;
-              return;
-            }
-            hideLogin();
-            resolve(true);
+      var byId = function(id){ return document.getElementById(id); };
+      var err = byId('login-error');
+      function msg(text, ok){ err.textContent = text || ''; err.style.color = ok ? 'var(--good)' : 'var(--danger)'; }
+      function step(which){
+        byId('login-step').style.display = which==='login' ? 'flex' : 'none';
+        byId('reset-step-1').style.display = which==='reset1' ? 'flex' : 'none';
+        byId('reset-step-2').style.display = which==='reset2' ? 'flex' : 'none';
+        msg('');
+      }
+      function done(){ hideLogin(); resolve(true); }
+
+      if(passkeysSupported()) byId('passkey-btn').style.display = '';
+
+      byId('login-btn').addEventListener('click', function(){
+        msg('Проверяем…', true);
+        supabaseClient.auth.signInWithPassword({ email: byId('login-email').value.trim(), password: byId('login-password').value })
+          .then(function(r){ if(r.error){ msg('Не получилось войти: '+r.error.message); return; } done(); });
+      });
+      byId('login-password').addEventListener('keydown', function(ev){ if(ev.key==='Enter') byId('login-btn').click(); });
+
+      byId('passkey-btn').addEventListener('click', function(){
+        msg('Ждём подтверждения…', true);
+        supabaseClient.auth.signInWithPasskey()
+          .then(function(r){ if(r.error){ msg('Вход по биометрии не удался: '+r.error.message); return; } done(); })
+          .catch(function(e){ msg('Вход по биометрии не удался: '+(e && e.message ? e.message : e)); });
+      });
+
+      byId('forgot-btn').addEventListener('click', function(){
+        byId('reset-email').value = byId('login-email').value;
+        step('reset1');
+      });
+      byId('reset-back-btn').addEventListener('click', function(){ step('login'); });
+      byId('reset-back-btn-2').addEventListener('click', function(){ step('login'); });
+
+      byId('reset-send-btn').addEventListener('click', function(){
+        var email = byId('reset-email').value.trim();
+        if(!email){ msg('Укажите почту.'); return; }
+        msg('Отправляем…', true);
+        markRecoveryPending(true);
+        supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: appUrl() }).then(function(r){
+          if(r.error){ markRecoveryPending(false); msg('Не получилось отправить письмо: '+r.error.message); return; }
+          step('reset2');
+          msg('Письмо отправлено на '+email+'. Ссылка действует ограниченное время.', true);
+        });
+      });
+
+      byId('reset-save-btn').addEventListener('click', function(){
+        var email = byId('reset-email').value.trim();
+        var code = byId('reset-code').value.trim();
+        var p1 = byId('reset-password').value, p2 = byId('reset-password2').value;
+        if(code.length<4){ msg('Кода нет — перейдите по ссылке из письма, и страница сама предложит задать пароль.'); return; }
+        if(p1.length<6){ msg('Пароль должен быть не короче 6 символов.'); return; }
+        if(p1!==p2){ msg('Пароли не совпадают.'); return; }
+        msg('Проверяем код…', true);
+        supabaseClient.auth.verifyOtp({ email: email, token: code, type: 'recovery' }).then(function(r){
+          if(r.error){ msg('Код не подошёл: '+r.error.message); return; }
+          return supabaseClient.auth.updateUser({ password: p1 }).then(function(r2){
+            if(r2.error){ msg('Пароль не сохранился: '+r2.error.message); return; }
+            done();
           });
+        });
       });
     });
   });
@@ -349,7 +463,7 @@ var publishTimer = null;
 var saveStatus = 'idle';
 /* кредитки и рассрочки хранятся в отдельных таблицах (debts.sql) через get/save_debts_state */
 var debtsStorageOk = false;
-function emptyDebts(){ return { cards:[], installments:[], paymentOverrides:{}, workingDays:{}, actuals:{} }; }
+function emptyDebts(){ return { cards:[], installments:[], paymentOverrides:{}, workingDays:{}, actuals:{}, goalSettings:{}, gifts:[] }; }
 function normalizeDebts(d){
   d = (d && typeof d==='object') ? d : {};
   var out = emptyDebts();
@@ -384,6 +498,23 @@ function normalizeDebts(d){
       if(dst.total || dst.items) outMonth[cid] = dst; 
     });
     if(Object.keys(outMonth).length) out.actuals[ym] = outMonth;
+  });
+  var gs = d.goalSettings||{};
+  Object.keys(gs).forEach(function(gid){
+    var v = gs[gid]||{};
+    var k = (v.kind==='reserve' || v.kind==='gifts') ? v.kind : 'bucket';
+    out.goalSettings[gid] = { kind: k, pace: Math.max(0, Number(v.pace)||0) };
+  });
+  (d.gifts||[]).forEach(function(x){
+    out.gifts.push({
+      id: x.id || uid('gift'),
+      name: x.name || '',
+      day: Math.max(1, Math.min(31, Number(x.day)||1)),
+      month: Math.max(1, Math.min(12, Number(x.month)||1)),
+      amount: Math.max(0, Number(x.amount)||0),
+      repeat: x.repeat==='once' ? 'once' : 'yearly',
+      year: x.year ? Number(x.year) : null
+    });
   });
   var wd = d.workingDays||{};
   Object.keys(wd).forEach(function(ym){
@@ -420,6 +551,12 @@ async function loadStateFromDB(){
     if(dr.error) throw dr.error;
     state.debts = normalizeDebts(dr.data);
     debtsStorageOk = true;
+    /* первый запуск после разделения: очевидные подушки размечаем сами, остальное — копилки */
+    if(!Object.keys(state.debts.goalSettings).length){
+      (state.goals||[]).forEach(function(g){
+        if(/подушк|валют/i.test(g.name||'')) setGoalKind(state, g.id, 'reserve');
+      });
+    }
   }catch(e){
     console.error('Кредиты и рассрочки не загружены (выполнен ли debts.sql?):', e);
     state.debts = emptyDebts();
@@ -1069,16 +1206,25 @@ function simulate(st){
 
   /* phase tracking: per goal, which milestone is currently active and how much has been
      credited toward it since it started (see comment above goalMilestones). */
-  var phaseIdx={}, phaseSaved={}, milestoneDates={}, msByGoal={};
+  var phaseIdx={}, phaseSaved={}, milestoneDates={}, msByGoal={}, closedPool={};
+  /* closedPool — деньги закрытых этапов, которые ещё не потрачены. Когда приходит трата,
+     она в первую очередь тратит именно их (это и есть плановая трата этапа) и не трогает
+     прогресс следующего этапа. */
+  function closeMilestone(gid, idx, dateISO){
+    var ms = msByGoal[gid];
+    milestoneDates[gid][idx] = dateISO;
+    (closedPool[gid] || (closedPool[gid]=[])).push({ idx: idx, deadline: ms[idx].deadline || '', left: ms[idx].target||0 });
+  }
   st.goals.forEach(function(g){
     var ms = goalMilestones(g);
     msByGoal[g.id]=ms;
     milestoneDates[g.id]=ms.map(function(){ return null; });
+    closedPool[g.id]=[];
     phaseIdx[g.id]=0;
     phaseSaved[g.id]=g.startingBalance||0;
     while(phaseIdx[g.id]<ms.length && phaseSaved[g.id] >= ms[phaseIdx[g.id]].target-1e-9){
       phaseSaved[g.id]-=ms[phaseIdx[g.id]].target;
-      milestoneDates[g.id][phaseIdx[g.id]]='pre';
+      closeMilestone(g.id, phaseIdx[g.id], 'pre');
       phaseIdx[g.id]++;
     }
   });
@@ -1090,7 +1236,7 @@ function simulate(st){
     phaseSaved[gid]=(phaseSaved[gid]||0)+amount;
     while(phaseIdx[gid]<ms.length && phaseSaved[gid] >= ms[phaseIdx[gid]].target-1e-9){
       phaseSaved[gid]-=ms[phaseIdx[gid]].target;
-      milestoneDates[gid][phaseIdx[gid]]=dateISO;
+      closeMilestone(gid, phaseIdx[gid], dateISO);
       phaseIdx[gid]++;
     }
   }
@@ -1105,10 +1251,54 @@ function simulate(st){
   });
   allWd.sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); });
   var wdPtr = 0;
+  /* Трата уносит из копилки не только деньги, но и прогресс: сначала съедается прогресс
+     текущего незакрытого этапа, потом откатываются уже закрытые — но только те, чьи деньги
+     ушли РАНЬШЕ их собственного срока. Этап, потраченный в свой срок или позже (поездка,
+     подарок), остаётся засчитанным навсегда: это и есть плановая трата. Так сумма,
+     накопленная в 2026-м и потраченная тогда же, больше не засчитывает этап 2027 года. */
+  /* Трата считается плановой для этапа, если она не раньше срока этапа или не более чем
+     за 45 дней до него: поездку 20.07 при сроке 31.07 планировали именно на эти деньги,
+     а трата за год до срока — это чужие деньги, и прогресс этапа надо откатить. */
+  function isPlannedSpend(deadline, dateISO){
+    if(!deadline) return true;
+    if(dateISO >= deadline) return true;
+    return daysBetween(dateISO, deadline) <= 45;
+  }
+  function withdrawFromGoal(gid, amount, dateISO){
+    goalSaved[gid] = (goalSaved[gid]||0) - amount;
+    var ms = msByGoal[gid];
+    if(!ms) return;
+    var left = amount;
+    var pool = closedPool[gid] || (closedPool[gid]=[]);
+    /* 1. плановая трата: тратим деньги закрытых этапов, чей срок уже наступил.
+       Прогресс следующего этапа при этом не страдает — деньги на поездку копились отдельно. */
+    for(var i=0; i<pool.length && left>0.0001; i++){
+      if(pool[i].left<=0) continue;
+      if(!isPlannedSpend(pool[i].deadline, dateISO)) continue;
+      var planned = Math.min(left, pool[i].left);
+      pool[i].left -= planned;
+      left -= planned;
+    }
+    /* 2. дальше трата съедает прогресс текущего незакрытого этапа */
+    var take = Math.min(left, phaseSaved[gid]||0);
+    phaseSaved[gid] = (phaseSaved[gid]||0) - take;
+    left -= take;
+    /* 3. и только потом откатывает закрытые этапы, чьи деньги ушли РАНЬШЕ их срока */
+    while(left > 0.0001 && phaseIdx[gid] > 0){
+      var prevIdx = phaseIdx[gid]-1, prev = ms[prevIdx];
+      if(isPlannedSpend(prev.deadline, dateISO)) break;
+      phaseIdx[gid] = prevIdx;
+      milestoneDates[gid][prevIdx] = null;
+      for(var j=pool.length-1; j>=0; j--){ if(pool[j].idx===prevIdx){ pool.splice(j,1); break; } }
+      var back = Math.min(left, prev.target||0);
+      phaseSaved[gid] = Math.max(0, (prev.target||0) - back);
+      left -= back;
+    }
+  }
   function applyWithdrawalsUpTo(dateISO){
     while(wdPtr<allWd.length && (dateISO===null || allWd[wdPtr].date<=dateISO)){
       var w = allWd[wdPtr++];
-      if(w.amount>=0) goalSaved[w.gid]=(goalSaved[w.gid]||0)-w.amount;
+      if(w.amount>=0) withdrawFromGoal(w.gid, w.amount, w.date);
       else depositToGoal(w.gid, -w.amount, w.date);
     }
   }
@@ -1193,9 +1383,10 @@ function simulate(st){
       });
     } else if(free>0){
       var active = st.goals.filter(function(g){ return !g.completed; }).slice().sort(function(a,b){ return a.priority-b.priority; });
-      var reqs = active.map(function(g){
+      function buildReqs(){ return active.map(function(g){
         var ms = msByGoal[g.id], idx = phaseIdx[g.id];
-        if(idx>=ms.length) return { g:g, remaining:0, per:0, overdue:false, deadline:'' };
+        var reserve = isReserveGoal(st, g);
+        if(idx>=ms.length) return { g:g, reserve:reserve, remaining:0, per:0, overdue:false, deadline:'' };
         var remaining = Math.max(0, ms[idx].target-phaseSaved[g.id]);
         /* Look past the current milestone if IT has no deadline of its own, to find the nearest
            deadline the goal is really working toward. A goal is funded strictly in order (you
@@ -1219,8 +1410,32 @@ function simulate(st){
         var periodsLeft = governingDeadline ? periods.filter(function(pp){ return pp.date>=p.date && pp.date<=governingDeadline; }).length : 0;
         var overdue = !!(governingDeadline && governingDeadline < p.date && combinedNeed>0);
         var per = combinedNeed<=0 ? 0 : (governingDeadline ? ((overdue||periodsLeft<=0) ? combinedNeed : combinedNeed/periodsLeft) : 0);
-        return { g:g, remaining:remaining, per:per, overdue:overdue, deadline: governingDeadline };
-      });
+        /* Подушка копится своим темпом за выплату. Если у её текущего этапа есть срок,
+           берём большее из темпа и того, что нужно откладывать, чтобы успеть к сроку.
+           Очередь подушек между собой — по сроку этапа, но всё равно после копилок. */
+        if(reserve){
+          var stageDeadline = ms[idx].deadline || '';
+          var stagePer = 0;
+          if(stageDeadline){
+            var left = periods.filter(function(pp){ return pp.date>=p.date && pp.date<=stageDeadline; }).length;
+            stagePer = left>0 ? remaining/left : remaining;
+          }
+          return { g:g, reserve:true, remaining:remaining, per: Math.min(remaining, Math.max(goalPace(st,g), stagePer)), overdue:false, deadline: stageDeadline };
+        }
+        return { g:g, reserve:false, remaining:remaining, per:per, overdue:overdue, deadline: governingDeadline };
+      }); }
+      function orderReqs(list, phase){
+        return list.slice().sort(function(a,b){
+          var ra = orderRank(a, phase), rb = orderRank(b, phase);
+          if(ra!==rb) return ra-rb;
+          if(ra===0 || ra===2){
+            var ka = a.deadline || '9999-99-99', kb = b.deadline || '9999-99-99';
+            if(ka!==kb) return ka<kb?-1:1;
+          }
+          return a.g.priority-b.g.priority;
+        });
+      }
+      var reqs = buildReqs();
       /* Money goes to whichever goal's CURRENT milestone (subgoal, or the goal itself when it
          has none) has the nearest deadline right now — true earliest-deadline-first — not
          strictly by priority and not by raw required-per-period amount. Sorting by amount alone
@@ -1236,28 +1451,36 @@ function simulate(st){
          own deadline gets closer than everything else competing for the same money, it moves to
          the front of this same sort automatically. Priority only breaks ties — equal deadlines,
          or goals with no deadline at all (those always sort after every dated one). */
-      var urgencyOrder = reqs.slice().sort(function(a,b){
-        var ka = a.deadline || '9999-99-99', kb = b.deadline || '9999-99-99';
-        if(ka!==kb) return ka<kb?-1:1;
-        return a.g.priority-b.g.priority;
-      });
+      /* Очередь: сначала копилки со сроком (у кого срок ближе), затем копилки без срока
+         по приоритету, и только потом подушки по приоритету — копилки важнее подушек. */
+      /* Подарки — это, по сути, обязательные расходы к дате: при раздаче темпов они идут
+         первыми, чтобы просрочки не было никогда. В доливке остатка подарочная копилка
+         участвует наравне с остальными — по сроку ближайшего праздника. */
+      function orderRank(r, phase){
+        if(phase==='pace' && goalKind(st, r.g)==='gifts') return -1;
+        return r.reserve ? 2 : (r.deadline ? 0 : 1);
+      }
+      var urgencyOrder = orderReqs(reqs, 'pace');
       urgencyOrder.forEach(function(r){
         if(free<=0) return;
         var give = Math.min(r.per, free, r.remaining);
         if(give>0.0001){ allocations[r.g.id]=(allocations[r.g.id]||0)+give; depositToGoal(r.g.id, give, p.date); free-=give; }
       });
-      /* leftover cash cascades down the same urgency order, but each goal is capped at what its
-         active milestone still needs — once a goal's target is met it is skipped, so money
-         no longer keeps piling into it past 100% (this was the "95 000 / 60 000" bug). */
-      if(free>0.5 && urgencyOrder.length){
-        for(var i=0;i<urgencyOrder.length && free>0.5;i++){
-          var g = urgencyOrder[i].g, ms = msByGoal[g.id], idx = phaseIdx[g.id];
-          if(idx>=ms.length) continue;
-          var remaining = Math.max(0, ms[idx].target-phaseSaved[g.id]);
-          if(remaining<=0) continue;
-          var give = Math.min(remaining, free);
-          if(give>0.0001){ allocations[g.id]=(allocations[g.id]||0)+give; depositToGoal(g.id, give, p.date); free-=give; }
-        }
+      /* Остаток после темпов доливается по одному этапу за раз, и очередь каждый раз строится
+         заново: как только у цели закрыт текущий этап, её следующий этап снова участвует в
+         сравнении сроков. Поэтому деньги сверх темпа уходят в ближайший по сроку этап —
+         например в июльскую поездку, а не в оплату зала с августовским сроком. Приоритет
+         решает при равных сроках и между целями без срока. */
+      var guard = 0;
+      while(free>0.5 && guard++ < 60){
+        var next = null;
+        orderReqs(buildReqs(), 'cascade').some(function(r){ if(r.remaining>0.0001){ next = r; return true; } return false; });
+        if(!next) break;
+        var give = Math.min(next.remaining, free);
+        if(give<=0.0001) break;
+        allocations[next.g.id]=(allocations[next.g.id]||0)+give;
+        depositToGoal(next.g.id, give, p.date);
+        free-=give;
       }
     }
     /* что осталось после копилок — досрочно в кредитку */
@@ -1351,6 +1574,19 @@ function cardStatusPill(fc, sim){
 
 /* ============ нормализация состояния перед отрисовкой ============ */
 /* подцели всегда идут по сроку закрытия: раньше срок — выше; без срока — в конце */
+/* траты и пополнения показываем и считаем по датам */
+function sortWithdrawals(st){
+  var changed = false;
+  st.goals.forEach(function(g){
+    if(!g.withdrawals || g.withdrawals.length<2) return;
+    var sorted = g.withdrawals.slice().sort(function(a,b){
+      var ka = a.date || '9999-99-99', kb = b.date || '9999-99-99';
+      return ka<kb?-1:(ka>kb?1:0);
+    });
+    for(var i=0;i<sorted.length;i++){ if(sorted[i]!==g.withdrawals[i]){ g.withdrawals = sorted; changed = true; break; } }
+  });
+  return changed;
+}
 function sortSubgoalsByDeadline(st){
   var changed = false;
   st.goals.forEach(function(g){
@@ -1510,6 +1746,8 @@ var root;
 function render(){
   if(!root) root = document.getElementById('root');
   var changed = sortSubgoalsByDeadline(state);
+  changed = sortWithdrawals(state) || changed;
+  changed = syncGiftsGoal(state) || changed;
   changed = syncIncome2026(state) || changed;
   changed = sortInstallmentPayments(state) || changed;
   changed = sortOkladHistory(state) || changed;
@@ -1526,6 +1764,8 @@ function render(){
   else if(ui.tab==='categories') body = renderCategories(sim);
   else if(ui.tab==='facts') body = renderFacts(sim);
   else if(ui.tab==='goals') body = renderGoals(sim);
+  else if(ui.tab==='reserves') body = renderReserves(sim);
+  else if(ui.tab==='gifts') body = renderGifts(sim);
   else if(ui.tab==='credits') body = renderCredits(sim);
   else if(ui.tab==='installments') body = renderInstallments(sim);
   else if(ui.tab==='vacations') body = renderVacations(sim);
@@ -1537,7 +1777,7 @@ function render(){
     + '<span class="today-date">Сегодня <b>'+esc(todayLong())+'</b></span></div>'
     + '</div>'
     + '<nav class="tabs">'
-    + tabBtn('dashboard','Обзор') + tabBtn('periods','Доходы') + tabBtn('categories','Категории') + tabBtn('facts','Расходы') + tabBtn('goals','Накопления') + tabBtn('credits','Кредиты') + tabBtn('installments','Рассрочки') + tabBtn('vacations','Отпуска') + tabBtn('settings','Настройки')
+    + tabBtn('dashboard','Обзор') + tabBtn('periods','Доходы') + tabBtn('categories','Категории') + tabBtn('facts','Расходы') + tabBtn('goals','Копилки') + tabBtn('gifts','Подарки') + tabBtn('reserves','Подушки') + tabBtn('credits','Кредиты') + tabBtn('installments','Рассрочки') + tabBtn('vacations','Отпуска') + tabBtn('settings','Настройки')
     + '</nav></div>'
     + '<main>' + body + '</main>'
     + renderRedistModal();
@@ -1577,44 +1817,101 @@ function renderDashboard(sim){
     + statCard('Свободный остаток', fmt(totalUnallocated))
     + '</div>';
   var shortfallBox = shortfalls ? '<div class="info-box" style="border:1px solid var(--danger);color:var(--danger);background:var(--danger-soft);"><b>'+shortfalls+' период(а/ов)</b> с дефицитом — расходы превышают доход. Загляните на вкладку «Периоды».</div>' : '';
-  var goalsHtml = '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Цели накоплений</h2></div><div class="grid cols-2">'
-    + state.goals.slice().sort(function(a,b){return a.priority-b.priority;}).map(function(g){
-        var finalTarget = goalFinalTarget(g);
-        var saved = goalCumulativeProgress(g, sim);
-        var potBalance = goalBalanceAt(g, sim, todayISO());
-        var pctRaw = finalTarget>0 ? Math.round(saved/finalTarget*100) : 0;
-        var pct = Math.max(0, Math.min(100, pctRaw));
-        var st_ = goalOverallStatus(g, sim);
-        var hasSub = g.subgoals && g.subgoals.length;
-        var achievements = milestoneAchievements(g, sim);
-        /* For a goal with a single (non-subgoal) target and a deadline, show the same
-           on-track/late traffic-light pill that subgoals already get via milestoneStatusPill,
-           instead of just echoing the deadline as inert text — a bare "к 15.02.2027" reads as
-           a promise the goal will land on time even when the simulation shows it won't. */
-        var deadlineLabel;
-        if(hasSub){
-          deadlineLabel = '';
-        } else if(g.deadline){
-          var soloPill0 = milestoneStatusPill(goalMilestones(g)[0], achievements[0].achievedDate);
-          deadlineLabel = '<span class="pill '+soloPill0.cls+'" style="font-size:10px;">'+soloPill0.label+'</span>';
-        } else {
-          deadlineLabel = achievements[0].achievedDate ? achievedDateLabel(achievements[0].achievedDate,'прогноз: ','уже накоплено') : 'без срока';
-        }
-        var subRows = hasSub ? '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">'
-          + g.subgoals.map(function(sg,si){
-              var pill = milestoneStatusPill(sg, achievements[si]?achievements[si].achievedDate:null);
-              return '<div class="row between" style="font-size:11px;"><span class="muted">'+esc(sg.name)+' · '+fmt(sg.target)+'</span><span class="pill '+pill.cls+'" style="font-size:10px;">'+pill.label+'</span></div>';
-            }).join('')
-          + '</div>' : '';
-        return '<div class="stat" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;">'
-          + '<div class="row between"><b>'+esc(g.name)+'</b><span class="pill '+st_.cls+'">'+st_.label+'</span></div>'
-          + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:6px 0;"><i style="width:'+pct+'%"></i></div>'
-          + '<div class="row between muted" style="font-size:12px;"><span class="num">'+fmt(saved)+' / '+fmt(finalTarget)+'</span><span>'+deadlineLabel+'</span></div>'
-          + '<div class="muted" style="font-size:11px;">на счету сейчас: <span class="num">'+fmt(potBalance)+'</span></div>'
-          + subRows
-          + '</div>';
-      }).join('')
-    + '</div></div>';
+  /* Карточка цели на Обзоре — про выбранный год: какие этапы закрываются в этом году
+     (по сроку, а у этапов без срока — по прогнозу) и сколько за год в неё отложено. */
+  function goalYearStats(g){
+    var ms = goalMilestones(g);
+    var dates = (sim.milestoneDates && sim.milestoneDates[g.id]) || [];
+    var stages = [];
+    ms.forEach(function(m, i){
+      var ach = dates[i];
+      var key = m.deadline || (ach && ach!=='pre' ? ach : '');
+      if(key && parseInt(key.slice(0,4),10)===activeYear) stages.push({ m:m, idx:i, achievedDate: ach });
+    });
+    var saved = 0;
+    sim.rows.forEach(function(r){ if(r.period.monthRef.y===activeYear) saved += r.allocations[g.id]||0; });
+    var nextDate = '';
+    for(var i=0;i<ms.length;i++){ if(!dates[i]) break; }
+    for(var j=0;j<ms.length;j++){
+      if(dates[j] && dates[j]!=='pre' && parseInt(dates[j].slice(0,4),10)>activeYear){ nextDate = dates[j]; break; }
+    }
+    return {
+      stages: stages,
+      saved: Math.round(saved),
+      target: Math.round(stages.reduce(function(sum,x){ return sum+(x.m.target||0); },0)),
+      total: goalFinalTarget(g),
+      nextDate: nextDate
+    };
+  }
+  function goalYearPill(g, stats){
+    if(g.completed) return { label:'Закрыта', cls:'ok' };
+    if(stats.stages.length){
+      var late = stats.stages.some(function(x){ return milestoneStatusPill(x.m, x.achievedDate).cls!=='ok'; });
+      return late ? { label:'Есть отставание', cls:'warn' } : { label:'В графике', cls:'ok' };
+    }
+    if(stats.nextDate) return { label:'Прогноз: '+ruDate(stats.nextDate), cls:'' };
+    return { label:'Не достигается в пределах плана', cls:'danger' };
+  }
+  function goalMiniCard(g){
+    var st2 = goalYearStats(g);
+    var base = st2.target>0 ? st2.target : st2.total;
+    var pctRaw = base>0 ? Math.round(st2.saved/base*100) : 0;
+    var pct = Math.max(0, Math.min(100, pctRaw));
+    var pill = goalYearPill(g, st2);
+    var potBalance = goalBalanceAt(g, sim, todayISO());
+    var stageRows = st2.stages.length
+      ? '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">'
+        + st2.stages.map(function(x){
+            var p = milestoneStatusPill(x.m, x.achievedDate);
+            return '<div class="row between" style="font-size:11px;"><span class="muted">'+esc(x.m.name||g.name)+' · '+fmt(x.m.target)+'</span>'
+              + '<span class="pill '+p.cls+'" style="font-size:10px;">'+p.label+'</span></div>';
+          }).join('')
+        + '</div>'
+      : '<div class="muted" style="font-size:11px;margin-top:4px;">В '+activeYear+' году ничего не закрывается — копим дальше.</div>';
+    return '<div class="stat" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;">'
+      + '<div class="row between"><b>'+esc(g.name)+'</b><span class="pill '+pill.cls+'">'+pill.label+'</span></div>'
+      + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:6px 0;"><i style="width:'+pct+'%"></i></div>'
+      + '<div class="row between muted" style="font-size:12px;"><span class="num">отложим в '+activeYear+': '+fmt(st2.saved)+' / '+fmt(base)+'</span>'
+      + '<span>'+(st2.target>0 ? 'цель года' : 'до общей суммы')+'</span></div>'
+      + '<div class="muted" style="font-size:11px;">на счету сейчас: <span class="num">'+fmt(potBalance)+'</span></div>'
+      + stageRows
+      + '</div>';
+  }
+  function goalGroupCard(title, list, hint){
+    if(!list.length) return '';
+    return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">'+title+'</h2>'
+      + (hint ? '<span class="muted" style="font-size:12px;">'+hint+'</span>' : '')
+      + '</div><div class="grid cols-2">'
+      + list.map(goalMiniCard).join('')
+      + '</div></div>';
+  }
+  /* подарки — отдельным блоком внизу, только праздники выбранного года */
+  function giftsYearCard(){
+    var gg = giftsGoal(state);
+    if(!gg) return '';
+    var dates = (sim.milestoneDates && sim.milestoneDates[gg.id]) || [];
+    var rows = (gg.subgoals||[]).map(function(sg, si){ return { sg:sg, si:si }; })
+      .filter(function(x){ return x.sg.deadline && parseInt(x.sg.deadline.slice(0,4),10)===activeYear; });
+    if(!rows.length) return '';
+    var total = rows.reduce(function(sum,x){ return sum+(x.sg.target||0); },0);
+    var saved = 0;
+    sim.rows.forEach(function(r){ if(r.period.monthRef.y===activeYear) saved += r.allocations[gg.id]||0; });
+    return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Подарки '+activeYear+'</h2>'
+      + '<span class="muted" style="font-size:12px;">обязательные суммы к датам — получают деньги первыми</span></div>'
+      + '<div class="table-scroll"><table><tr><th>Дата</th><th>Праздник</th><th class="num">Сумма</th><th>Статус</th></tr>'
+      + rows.map(function(x){
+          var p = milestoneStatusPill(x.sg, dates[x.si]);
+          return '<tr'+(x.sg.deadline<todayISO()?' style="opacity:.6;"':'')+'><td class="num" style="text-align:left;">'+ruDate(x.sg.deadline)+'</td>'
+            + '<td>'+esc(x.sg.name)+'</td><td class="num">'+fmt(x.sg.target)+'</td>'
+            + '<td><span class="pill '+p.cls+'" style="font-size:10px;">'+p.label+'</span></td></tr>';
+        }).join('')
+      + '<tr><td><b>Итого за год</b></td><td></td><td class="num"><b>'+fmt(total)+'</b></td>'
+      + '<td class="muted" style="font-size:11px;">отложим в '+activeYear+': '+fmt(Math.round(saved))+'</td></tr>'
+      + '</table></div></div>';
+  }
+  var goalsHtml = goalGroupCard('Копилки', bucketGoals(state), 'получают деньги первыми')
+    + goalGroupCard('Подушки', goalsOfKind(state,'reserve'), 'получают то, что осталось после копилок')
+    + giftsYearCard();
   var view = ui.dashView==='income' ? renderDashIncome(activeYear)
     : ui.dashView==='expenses' ? renderDashExpenses(sim, activeYear)
     : goalsHtml;
@@ -1984,11 +2281,23 @@ function renderPeriodCard(r, st, plan, isPastCard, periodSim){
     var outSeason = c.season && !inSeason(p.date, c.season);
     return '<tr><td>'+esc(c.name)+(outSeason?' <span class="muted" style="font-size:10px;">(не сезон)</span>':'')+'</td><td class="num"><input type="text" inputmode="numeric" class="num" data-cat-override data-period="'+p.id+'" data-cat="'+c.id+'" value="'+val+'"'+dis+'></td></tr>';
   }).join('');
-  var allocRows = state.goals.slice().sort(function(a,b){return a.priority-b.priority;}).map(function(g){
-    var val = r.allocations[g.id] || 0;
-    var bal = r.goalSnapshot[g.id]||0;
-    return '<tr><td>'+esc(g.name)+'</td><td class="num"><input type="text" inputmode="numeric" class="num" data-alloc-override data-period="'+p.id+'" data-goal="'+g.id+'" value="'+Math.round(val)+'"'+dis+'></td><td class="num muted">'+fmt(bal)+'</td></tr>';
-  }).join('');
+  function allocGroupRows(title, list){
+    /* закрытая цель в будущих выплатах не показывается: в прошлых остаётся как факт */
+    list = list.filter(function(g){
+      if(!g.completed) return true;
+      if((r.allocations[g.id]||0) > 0.5) return true;
+      return p.date < todayISO();
+    });
+    if(!list.length) return '';
+    var sum = list.reduce(function(acc,g){ return acc + (r.allocations[g.id]||0); },0);
+    return '<tr><td colspan="3" style="padding-top:10px;"><b style="font-size:12px;">'+title+'</b> <span class="muted num" style="font-size:12px;">'+fmt(sum)+'</span></td></tr>'
+      + list.map(function(g){
+          var val = r.allocations[g.id] || 0;
+          var bal = r.goalSnapshot[g.id]||0;
+          return '<tr><td>'+esc(g.name)+'</td><td class="num"><input type="text" inputmode="numeric" class="num" data-alloc-override data-period="'+p.id+'" data-goal="'+g.id+'" value="'+Math.round(val)+'"'+dis+'></td><td class="num muted">'+fmt(bal)+'</td></tr>';
+        }).join('');
+  }
+  var allocRows = allocGroupRows('Копилки', goalsOfKind(st,'bucket')) + allocGroupRows('Подушки', goalsOfKind(st,'reserve'));
   var hasOverride = !!(st.savingsOverrides[p.id] && Object.keys(st.savingsOverrides[p.id]).length);
   var lockText, lockBtn;
   if(p.locked){
@@ -2039,11 +2348,91 @@ function renderPeriodCard(r, st, plan, isPastCard, periodSim){
     + '<table>'+catRows+'</table>'
     + renderPeriodDebts(r, st, p, dis, periodSim)
     + '<hr class="sep">'
-    + '<div class="row between"><b style="font-size:13px;">Распределение по копилкам</b><button class="small ghost" data-clear-alloc-override="'+p.id+'"'+dis+'>'+(hasOverride?(p.locked?'Обнулить':'Сбросить на авто-расчёт'):'')+'</button></div>'
+    + '<div class="row between"><b style="font-size:13px;">Распределение по копилкам и подушкам</b><button class="small ghost" data-clear-alloc-override="'+p.id+'"'+dis+'>'+(hasOverride?(p.locked?'Обнулить':'Сбросить на авто-расчёт'):'')+'</button></div>'
     + '<table><tr><th>Цель</th><th class="num">Отложено</th><th class="num">В копилке на '+p.label+'</th></tr>'+allocRows+'</table>'
     + renderRemainderLine(r)
     + '</div>';
   return '<div class="period-card'+(open?' open':'')+(isPastCard?' past':'')+'" data-period-card="'+p.id+'">'+head+body+'</div>';
+}
+
+/* ============ копилки и подушки ============
+   Копилка — цель с оборотом: копим к сроку, тратим, копим снова (Путешествия, Подарки, Оплата зала),
+   либо разовая цель (Имплант) — она закрывается после траты.
+   Подушка — накопление без срока, тратить не планируем (Валюта, Подушка безопасности):
+   получает свой темп за выплату и остаток после копилок. */
+function goalSettingsMap(st){ return (st.debts && st.debts.goalSettings) || {}; }
+function goalKind(st, g){
+  var v = goalSettingsMap(st)[g.id];
+  if(v && v.kind==='reserve') return 'reserve';
+  if(v && v.kind==='gifts') return 'gifts';
+  return 'bucket';
+}
+function giftsGoal(st){ return st.goals.find(function(g){ return goalKind(st,g)==='gifts'; }) || null; }
+function giftsList(st){ var d = debtsOf(st); return d.gifts || []; }
+function isReserveGoal(st, g){ return goalKind(st,g)==='reserve'; }
+function goalPace(st, g){
+  var v = goalSettingsMap(st)[g.id];
+  return Math.max(0, (v && Number(v.pace)) || 0);
+}
+function goalSettingEntry(st, gid){
+  if(!st.debts.goalSettings) st.debts.goalSettings = {};
+  var all = st.debts.goalSettings;
+  return all[gid] || (all[gid] = { kind:'bucket', pace:0 });
+}
+function setGoalKind(st, gid, kind){
+  var e = goalSettingEntry(st, gid);
+  e.kind = (kind==='reserve' || kind==='gifts') ? kind : 'bucket';
+  if(e.kind!=='reserve') e.pace = 0;
+  /* копилка подарков может быть только одна */
+  if(e.kind==='gifts'){
+    Object.keys(st.debts.goalSettings).forEach(function(other){
+      if(other!==gid && st.debts.goalSettings[other].kind==='gifts') st.debts.goalSettings[other].kind = 'bucket';
+    });
+  }
+}
+function setGoalPace(st, gid, pace){ goalSettingEntry(st, gid).pace = Math.max(0, pace||0); }
+/* «копилки» на вкладке — это и обычные цели, и копилка подарков: подушки отдельно */
+/* обычные копилки: подарочная живёт на своей вкладке и в список не попадает */
+function bucketGoals(st){
+  return st.goals.filter(function(g){ return goalKind(st,g)==='bucket'; })
+    .slice().sort(function(a,b){ return a.priority-b.priority; });
+}
+function goalsOfKind(st, kind){
+  return st.goals.filter(function(g){
+    var k = goalKind(st,g);
+    return kind==='reserve' ? k==='reserve' : k!=='reserve';
+  }).slice().sort(function(a,b){ return a.priority-b.priority; });
+}
+/* Праздники: список дат с суммами. Каждый праздник разворачивается в подцель «накопить к дате»
+   и трату в ту же дату — по одной паре на каждый год плана, если праздник повторяется. */
+function syncGiftsGoal(st){
+  var g = giftsGoal(st);
+  if(!g) return false;
+  var list = giftsList(st), years = planYears(st);
+  var subs = [], wds = [];
+  list.forEach(function(gift){
+    var ys = gift.repeat==='once' ? [gift.year] : years;
+    ys.forEach(function(y){
+      if(!y || !gift.month || !gift.day) return;
+      var date = isoDate(y, gift.month, Math.min(gift.day, daysInMonth(y, gift.month)));
+      /* повторяющийся праздник не планируем задним числом: прошедшие даты пропускаем */
+      if(gift.repeat!=='once' && date < todayISO()) return;
+      var label = (gift.name||'Праздник')+' '+y;
+      subs.push({ id:'gift-'+gift.id+'-'+y, name: label, target: Math.max(0, gift.amount||0), deadline: date });
+      wds.push({ date: date, amount: Math.max(0, gift.amount||0), note: label, label: label });
+    });
+  });
+  subs.sort(function(a,b){ return a.deadline<b.deadline?-1:(a.deadline>b.deadline?1:0); });
+  wds.sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); });
+  var same = JSON.stringify(g.subgoals||[])===JSON.stringify(subs) && JSON.stringify(g.withdrawals||[])===JSON.stringify(wds);
+  if(same) return false;
+  g.subgoals = subs;
+  g.withdrawals = wds;
+  return true;
+}
+function setGift(st, gift){
+  if(!st.debts.gifts) st.debts.gifts = [];
+  st.debts.gifts.push(gift);
 }
 
 /* ============ фактические расходы (вводятся вручную, только для сравнения с планом) ============ */
@@ -2602,8 +2991,9 @@ function renderFacts(sim){
 
 /* ---------- goals ---------- */
 function renderGoals(sim){
-  var sorted = state.goals.slice().sort(function(a,b){return a.priority-b.priority;});
+  var sorted = bucketGoals(state);
   var cards = sorted.map(function(g,idx){
+    var isGifts = goalKind(state,g)==='gifts';
     var hasSub = g.subgoals && g.subgoals.length;
     var finalTarget = goalFinalTarget(g);
     var saved = goalCumulativeProgress(g, sim);
@@ -2634,9 +3024,10 @@ function renderGoals(sim){
           + '<input type="date" data-sub-deadline data-goal="'+g.id+'" data-idx="'+si+'" value="'+(sg.deadline||'')+'">'
           + '<button class="ghost small" data-sub-del data-goal="'+g.id+'" data-idx="'+si+'">✕</button>'
           + '</div>'
-          + '<div style="margin:-4px 0 8px;"><span class="pill '+pill.cls+'" style="font-size:10px;">'+pill.label+'</span></div>';
+          + '<div class="row wrap" style="gap:6px;margin:-4px 0 8px;"><span class="pill '+pill.cls+'" style="font-size:10px;">'+pill.label+'</span>'
+          + '<button class="small ghost" data-sub-to-wd data-goal="'+g.id+'" data-idx="'+si+'" title="Создать трату на сумму подцели">→ трата</button></div>';
       }).join('');
-      milestonesBlock = '<div class="small-note" style="margin-bottom:6px;">Подцели копилки (без срока — оставьте дату пустой, тогда покажем прогноз).</div>'
+      milestonesBlock = '<div class="small-note" style="margin-bottom:6px;">Кнопка «→ трата» создаёт трату на сумму подцели с её названием и датой срока — дату потом можно поменять. Подцели копилки (без срока — оставьте дату пустой, тогда покажем прогноз).</div>'
         + subRows
         + '<div class="row" style="gap:8px;margin-top:4px;"><button class="small ghost" data-sub-add="'+g.id+'">+ подцель</button><button class="small ghost" data-sub-clear="'+g.id+'">Убрать подцели</button></div>';
     } else {
@@ -2658,30 +3049,214 @@ function renderGoals(sim){
       + '<div class="goal-top">'
       + '<input type="text" style="font-weight:700;font-size:15px;border:none;background:transparent;flex:1;min-width:120px;" data-goal-name data-goal="'+g.id+'" value="'+esc(g.name)+'">'
       + '<div class="priority-controls row">'
-      + '<span class="pill">приоритет '+g.priority+'</span>'
+      + '<span class="pill">приоритет '+(idx+1)+'</span>'
       + '<button class="ghost small" data-goal-up="'+g.id+'" '+(idx===0?'disabled':'')+'>↑</button>'
       + '<button class="ghost small" data-goal-down="'+g.id+'" '+(idx===sorted.length-1?'disabled':'')+'>↓</button>'
       + '<button class="ghost small" data-goal-del="'+g.id+'">✕</button>'
       + '</div></div>'
+      + '<div class="row wrap" style="gap:6px;margin-top:4px;">'
+      + (isGifts ? '<span class="pill warn" style="font-size:10px;">управляется на вкладке «Подарки»</span><button class="small ghost" data-goal-kind="bucket" data-goal="'+g.id+'">→ обычная копилка</button>'
+                 : '<button class="small ghost" data-goal-kind="reserve" data-goal="'+g.id+'" title="Перенести в подушки: без срока, копится своим темпом">→ в подушки</button>'
+                   + '<button class="small ghost" data-goal-kind="gifts" data-goal="'+g.id+'" title="Сделать копилкой подарков: этапы и траты собираются из списка праздников">→ в подарки</button>')
+      + '</div>'
       + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:8px 0;"><i style="width:'+pct+'%"></i></div>'
       + '<div class="row between muted num" style="font-size:12px;">'+fmt(saved)+' / '+fmt(finalTarget)+' ('+pct+'%)</div>'
       + '<div class="muted" style="font-size:12px;">на счету сейчас ('+ruDate(todayISO())+'): <b class="num" style="color:var(--ink);">'+fmt(potBalance)+'</b></div>'
       + '<hr class="sep">'
-      + milestonesBlock
+      + (isGifts
+          ? '<div class="small-note">Этапы и траты этой копилки собираются из списка праздников на вкладке «Подарки»: по одной паре «накопить к дате — потратить» на каждый праздник и год.</div>'
+          : milestonesBlock)
       + '<div class="row wrap between" style="margin-top:10px;gap:8px;">'
       + '<label class="row" style="align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:0;"><input type="checkbox" style="width:auto;" data-goal-completed data-goal="'+g.id+'" '+(g.completed?'checked':'')+'> <span class="muted" style="font-size:12px;">цель выполнена / закрыта</span></label>'
       + (canRedistribute ? '<button class="small" data-redistribute="'+g.id+'">Перераспределить остаток '+fmt(potBalance)+'</button>' : '')
       + '</div>'
       + (hasSub ? '<div class="small-note">Начальный остаток: <input type="text" inputmode="numeric" class="num" style="display:inline-block;width:120px;" data-goal-start data-goal="'+g.id+'" value="'+g.startingBalance+'"></div>' : '')
       + '<hr class="sep">'
-      + '<div class="row between"><b style="font-size:12px;">Траты из этой копилки</b><button class="small ghost" data-wd-add="'+g.id+'">+ трата</button></div>'
-      + wdHtml
+      + '<div class="row between"><b style="font-size:12px;">Траты из этой копилки</b>'+(isGifts?'':'<button class="small ghost" data-wd-add="'+g.id+'">+ трата</button>')+'</div>'
+      + (isGifts ? '<div class="small-note">Траты создаются автоматически на даты праздников.</div>' : wdHtml)
       + (inHtml ? '<div class="row between" style="margin-top:8px;"><b style="font-size:12px;">Пополнения из других копилок</b></div>' + inHtml : '')
       + '</div>';
   }).join('');
-  return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Цели накоплений</h2><button class="small" data-add-goal>+ цель</button></div>'
-    + '<div class="info-box" style="margin-bottom:12px;">Свободный остаток каждого периода распределяется автоматически по <b>срочности</b>, а не жёстко по приоритету: сначала деньги получает та цель (или текущий этап), которой нужно откладывать больше в расчёте на период, чтобы успеть к своему сроку — даже если её приоритет ниже. Так цель с более ранним сроком не срывается только из-за того, что выше в списке стоит другая цель, у которой запас времени ещё большой. При этом цель с высоким приоритетом не страдает: как только у неё самой срок начинает поджимать, её собственная потребность в деньгах на период растёт и она снова получает деньги в первую очередь. Приоритет решает только при равной срочности (например, между целями без срока) — их пополнение идёт по приоритету, стрелками. Как только цель (или текущий этап) набирает свою сумму, пополнение прекращается и излишек идёт следующей по срочности цели. Можно переопределить вручную в карточке периода. Цель можно разбить на подцели (этапы) — например «к 1 апреля накопить 150 000, потратить, затем к 31 июля накопить ещё 315 000» — каждая со своим сроком или без него. <b>Общая цель на карточке = сумма всех этапов</b> (150 000 + 315 000 = 465 000): это сколько всего денег пройдёт через копилку за год, а не остаток на счету в моменте — фактический остаток («на счету сейчас») показан отдельной строкой, если он отличается.</div>'
+  return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Копилки</h2><button class="small" data-add-goal>+ копилка</button></div>'
+    + '<div class="info-box" style="margin-bottom:12px;"><b>Копилка</b> — цель с оборотом: копим к сроку, тратим, копим снова (поездки, подарки, оплата зала). Разовая цель вроде импланта тоже живёт здесь: со сроком копится к дате, без срока — по приоритету, а после траты её можно закрыть. Копилки получают деньги <b>раньше подушек</b>. '
+    + 'Свободный остаток каждого периода распределяется автоматически по <b>срочности</b>, а не жёстко по приоритету: сначала деньги получает та цель (или текущий этап), которой нужно откладывать больше в расчёте на период, чтобы успеть к своему сроку — даже если её приоритет ниже. Так цель с более ранним сроком не срывается только из-за того, что выше в списке стоит другая цель, у которой запас времени ещё большой. При этом цель с высоким приоритетом не страдает: как только у неё самой срок начинает поджимать, её собственная потребность в деньгах на период растёт и она снова получает деньги в первую очередь. Приоритет решает только при равной срочности (например, между целями без срока) — их пополнение идёт по приоритету, стрелками. Как только цель (или текущий этап) набирает свою сумму, пополнение прекращается и излишек идёт следующей по срочности цели. Можно переопределить вручную в карточке периода. Цель можно разбить на подцели (этапы) — например «к 1 апреля накопить 150 000, потратить, затем к 31 июля накопить ещё 315 000» — каждая со своим сроком или без него. <b>Общая цель на карточке = сумма всех этапов</b> (150 000 + 315 000 = 465 000): это сколько всего денег пройдёт через копилку за год, а не остаток на счету в моменте — фактический остаток («на счету сейчас») показан отдельной строкой, если он отличается.</div>'
     + cards + '</div>';
+}
+
+/* ---------- подарки ---------- */
+function renderGifts(sim){
+  var g = giftsGoal(state);
+  var year = currentYear(state);
+  if(!g){
+    return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Подарки</h2><button class="small" data-create-gifts-goal>Создать копилку подарков</button></div>'
+      + '<div class="info-box">Здесь ведётся список праздников: день рождения, Новый год и прочее. Для каждого указывается дата и сумма, и приложение само собирает из этого копилку: к каждой дате копится нужная сумма, в саму дату она списывается, а на следующий год всё повторяется. '
+      + 'Разовые праздники ставятся с конкретным годом. Свадьбы и прочие непредсказуемые траты лучше держать отдельной целью — под каждую свою.<br><br>'
+      + 'Нажмите «Создать копилку подарков» или на вкладке «Копилки» переключите существующую цель кнопкой «→ в подарки».</div></div>';
+  }
+  var list = giftsList(state);
+  var achievements = milestoneAchievements(g, sim);
+  var subs = g.subgoals || [];
+  var today = todayISO();
+  var rows = list.map(function(gift, i){
+    var refYear = gift.repeat==='once' ? (gift.year || year) : year;
+    var dateVal = refYear ? isoDate(refYear, gift.month, Math.min(gift.day, daysInMonth(refYear, gift.month))) : '';
+    return '<div class="item-row" style="grid-template-columns:1.4fr 150px 120px 150px auto;">'
+      + '<input type="text" placeholder="Например, ДР Вики" data-gift-name data-idx="'+i+'" value="'+esc(gift.name)+'">'
+      + '<input type="date" data-gift-date data-idx="'+i+'" value="'+dateVal+'">'
+      + '<input type="text" inputmode="numeric" class="num" data-gift-amount data-idx="'+i+'" value="'+gift.amount+'">'
+      + '<select data-gift-repeat data-idx="'+i+'">'
+      + '<option value="yearly"'+(gift.repeat!=='once'?' selected':'')+'>Каждый год</option>'
+      + '<option value="once"'+(gift.repeat==='once'?' selected':'')+'>Один раз</option>'
+      + '</select>'
+      + '<button class="ghost small" data-gift-del data-idx="'+i+'">✕</button>'
+      + '</div>';
+  }).join('');
+  /* что получится в выбранном году */
+  var yearSubs = subs.map(function(sg, si){ return { sg:sg, si:si }; })
+    .filter(function(x){ return x.sg.deadline && parseInt(x.sg.deadline.slice(0,4),10)===year; });
+  var yearTotal = yearSubs.reduce(function(sum,x){ return sum + (x.sg.target||0); },0);
+  var payoutsInYear = state.periods.filter(function(p){ return p.monthRef.y===year; }).length;
+  var preview = yearSubs.length
+    ? '<div class="table-scroll"><table><tr><th>Дата</th><th>Праздник</th><th class="num">Сумма</th><th>Статус</th></tr>'
+      + yearSubs.map(function(x){
+          var pill = milestoneStatusPill(x.sg, achievements[x.si] ? achievements[x.si].achievedDate : null);
+          return '<tr'+(x.sg.deadline<today?' style="opacity:.6;"':'')+'><td class="num" style="text-align:left;">'+ruDate(x.sg.deadline)+'</td>'
+            + '<td>'+esc(x.sg.name)+'</td><td class="num">'+fmt(x.sg.target)+'</td>'
+            + '<td><span class="pill '+pill.cls+'" style="font-size:10px;">'+pill.label+'</span></td></tr>';
+        }).join('')
+      + '<tr><td><b>Итого за '+year+'</b></td><td></td><td class="num"><b>'+fmt(yearTotal)+'</b></td><td></td></tr>'
+      + '</table></div>'
+      + '<div class="small-note">Это '+(payoutsInYear ? fmt(Math.round(yearTotal/payoutsInYear)) : '—')+' в среднем с каждой выплаты. Копится не поровну: к каждой дате приложение откладывает столько, чтобы успеть именно к ней.</div>'
+    : '<div class="small-note">В '+year+' году праздников нет.</div>';
+  return yearTabsNav(state)
+    + '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Подарки</h2><button class="small" data-gift-add>+ праздник</button></div>'
+    + '<div class="info-box" style="margin-bottom:12px;">Список праздников разворачивается в копилку «'+esc(g.name)+'»: к каждой дате копится своя сумма, в эту дату она списывается, а повторяющийся праздник появляется снова в следующем году плана. Менять этапы и траты в самой копилке не нужно — они собираются отсюда. '
+    + 'Для повторяющегося праздника из даты берутся только день и месяц. Разовый праздник учитывается только в своём году.</div>'
+    + '<div class="tag-input-grid" style="grid-template-columns:1.4fr 150px 120px 150px auto;font-size:11px;color:var(--muted);margin-bottom:4px;"><span>Праздник</span><span>Дата</span><span>Сумма</span><span>Повтор</span><span></span></div>'
+    + (rows || '<div class="small-note">Праздников пока нет.</div>')
+    + '<hr class="sep">'
+    + '<div class="row between wrap"><b style="font-size:13px;">План на '+year+' год</b>'
+    + '<span class="muted" style="font-size:12px;">в копилке сейчас: <b class="num">'+fmt(goalBalanceAt(g, sim, today))+'</b></span></div>'
+    + preview
+    + '</div>';
+}
+
+/* ---------- подушки ---------- */
+/* Сколько нужно откладывать в выплату, чтобы закрыть текущий этап подушки к его сроку,
+   и сколько в среднем свободных денег остаётся в выплате после копилок — из этого
+   складывается рекомендуемый темп. */
+function reservePaceSuggestion(st, g, sim){
+  var today = todayISO();
+  var future = sim.rows.filter(function(r){ return r.period.date >= today; });
+  var ms = goalMilestones(g);
+  var row = lastRowAtOrBefore(sim, today);
+  var ph = row ? row.phaseSnapshot : sim.initialPhase;
+  var idx = (ph.idx[g.id]||0), saved = (ph.saved[g.id]||0);
+  var stage = idx<ms.length ? ms[idx] : null;
+  var need = stage ? Math.max(0, (stage.target||0) - saved) : 0;
+  var payoutsLeft = (stage && stage.deadline)
+    ? st.periods.filter(function(p){ return p.date>=today && p.date<=stage.deadline; }).length
+    : future.length;
+  var needPer = payoutsLeft>0 ? need/payoutsLeft : need;
+  /* свободные деньги = нераспределённый остаток выплаты плюс то, что уже уходит в эту подушку */
+  var avgFree = future.length
+    ? future.reduce(function(sum,r){ return sum + Math.max(0, r.unallocated) + (r.allocations[g.id]||0); },0)/future.length
+    : 0;
+  return {
+    stage: stage, need: need, payoutsLeft: payoutsLeft,
+    needPer: Math.round(needPer), avgFree: Math.round(avgFree),
+    suggested: Math.round(Math.min(Math.max(needPer, 0), avgFree)),
+    enough: avgFree + 0.5 >= needPer
+  };
+}
+function renderReserves(sim){
+  var list = goalsOfKind(state, 'reserve');
+  var today = todayISO();
+  var cards = list.map(function(g, idx){
+    var target = goalFinalTarget(g);
+    var saved = goalCumulativeProgress(g, sim);
+    var balance = goalBalanceAt(g, sim, today);
+    var pace = goalPace(state, g);
+    var pctRaw = target>0 ? Math.round(saved/target*100) : 0;
+    var pct = Math.max(0, Math.min(100, pctRaw));
+    var achievements = milestoneAchievements(g, sim);
+    var hasStages = !!(g.subgoals && g.subgoals.length);
+    var stagesBlock = hasStages
+      ? '<div class="small-note" style="margin:10px 0 6px;">Этапы подушки: например «к 1 марта 60 000», а всего 300 000. Пока этап не закрыт, подушка старается успеть к его сроку.</div>'
+        + g.subgoals.map(function(sg,si){
+            var pill = milestoneStatusPill(sg, achievements[si]?achievements[si].achievedDate:null);
+            return '<div class="item-row" style="grid-template-columns:1.3fr 1fr 1fr auto;align-items:center;">'
+              + '<input type="text" data-sub-name data-goal="'+g.id+'" data-idx="'+si+'" value="'+esc(sg.name)+'">'
+              + '<input type="text" inputmode="numeric" class="num" data-sub-target data-goal="'+g.id+'" data-idx="'+si+'" value="'+sg.target+'">'
+              + '<input type="date" data-sub-deadline data-goal="'+g.id+'" data-idx="'+si+'" value="'+(sg.deadline||'')+'">'
+              + '<button class="ghost small" data-sub-del data-goal="'+g.id+'" data-idx="'+si+'">✕</button>'
+              + '</div>'
+              + '<div style="margin:-4px 0 8px;"><span class="pill '+pill.cls+'" style="font-size:10px;">'+pill.label+'</span></div>';
+          }).join('')
+        + '<div class="row" style="gap:8px;margin-top:4px;"><button class="small ghost" data-sub-add="'+g.id+'">+ этап</button><button class="small ghost" data-sub-clear="'+g.id+'">Убрать этапы</button></div>'
+      : '<button class="small ghost" data-sub-add="'+g.id+'" style="margin-top:8px;">+ разбить на этапы со сроками</button>';
+    var sug = reservePaceSuggestion(state, g, sim);
+    var paceHint = '';
+    if(sug.stage){
+      var stageName = sug.stage.id==='_main' ? 'ориентира' : '«'+esc(sug.stage.name||'этапа')+'»';
+      paceHint = '<div class="small-note">До ' + stageName + ' не хватает <b class="num">'+fmt(sug.need)+'</b>'
+        + (sug.stage.deadline ? ', срок '+ruDate(sug.stage.deadline)+' — это '+sug.payoutsLeft+' '+plural(sug.payoutsLeft,'выплата','выплаты','выплат')+' и <b class="num">'+fmt(sug.needPer)+'</b> в выплату' : '')
+        + '. Свободных денег после копилок остаётся в среднем <b class="num">'+fmt(sug.avgFree)+'</b> в выплату. '
+        + (sug.stage.deadline && !sug.enough ? '<span style="color:var(--danger);">К сроку при текущем плане не хватает.</span> ' : '')
+        + 'Рекомендуемый темп: <b class="num">'+fmt(sug.suggested)+'</b> '
+        + '<button class="small ghost" data-pace-suggest="'+g.id+'" data-value="'+sug.suggested+'">Подставить</button></div>';
+    }
+    var achieved = achievements[0];
+    var forecast = achieved && achieved.achievedDate
+      ? (achieved.achievedDate==='pre' ? 'Ориентир уже покрыт начальным остатком' : 'Прогноз: ориентир будет набран к <b>'+ruDate(achieved.achievedDate)+'</b>')
+      : 'При текущем плане ориентир не набирается до конца плана';
+    var wdHtml = (g.withdrawals||[]).map(function(w,wi){
+      var incoming = (w.amount||0) < 0;
+      var wName = (w.note!=null && w.note!=='') ? w.note : (w.label||'');
+      return '<div class="item-row wd-row">'
+        + '<input type="date" data-wd-date data-goal="'+g.id+'" data-idx="'+wi+'" value="'+w.date+'">'
+        + '<input type="text" placeholder="Название" data-wd-note data-goal="'+g.id+'" data-idx="'+wi+'" value="'+esc(wName)+'">'
+        + '<input type="text" inputmode="numeric" class="num" '+(incoming?'data-wd-in-amount':'data-wd-amount')+' data-goal="'+g.id+'" data-idx="'+wi+'" value="'+Math.abs(w.amount||0)+'">'
+        + '<button class="ghost small" data-wd-del data-goal="'+g.id+'" data-idx="'+wi+'">✕</button>'
+        + '</div>';
+    }).join('');
+    return '<div class="goal-card">'
+      + '<div class="goal-top">'
+      + '<input type="text" style="font-weight:700;font-size:15px;border:none;background:transparent;flex:1;min-width:120px;" data-goal-name data-goal="'+g.id+'" value="'+esc(g.name)+'">'
+      + '<div class="priority-controls row">'
+      + '<span class="pill">приоритет '+(idx+1)+'</span>'
+      + '<button class="ghost small" data-goal-up="'+g.id+'" '+(idx===0?'disabled':'')+'>↑</button>'
+      + '<button class="ghost small" data-goal-down="'+g.id+'" '+(idx===list.length-1?'disabled':'')+'>↓</button>'
+      + '<button class="ghost small" data-goal-del="'+g.id+'">✕</button>'
+      + '</div></div>'
+      + '<div class="row wrap" style="gap:6px;margin-top:4px;"><button class="small ghost" data-goal-kind="bucket" data-goal="'+g.id+'" title="Перенести в копилки: со сроком и этапами">→ в копилки</button></div>'
+      + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:8px 0;"><i style="width:'+pct+'%"></i></div>'
+      + '<div class="row between muted num" style="font-size:12px;">'+fmt(saved)+' / '+fmt(target)+' ('+pct+'%)</div>'
+      + '<div class="muted" style="font-size:12px;">на счету сейчас ('+ruDate(today)+'): <b class="num" style="color:var(--ink);">'+fmt(balance)+'</b></div>'
+      + '<hr class="sep">'
+      + '<div class="grid cols-3">'
+      + (hasStages
+          ? '<div><label>Всего по этапам, ₽</label><input type="text" class="num" value="'+target+'" disabled title="Сумма всех этапов"></div>'
+          : '<div><label>Ориентир, ₽</label><input type="text" inputmode="numeric" class="num" data-goal-target data-goal="'+g.id+'" value="'+g.target+'"></div>')
+      + '<div><label>Темп: сумма в выплату</label><input type="text" inputmode="numeric" class="num" data-goal-pace data-goal="'+g.id+'" value="'+pace+'"></div>'
+      + '<div><label>Начальный остаток</label><input type="text" inputmode="numeric" class="num" data-goal-start data-goal="'+g.id+'" value="'+g.startingBalance+'"></div>'
+      + '</div>'
+      + stagesBlock
+      + '<div class="small-note">'+forecast+'. '+(pace>0
+          ? 'В каждую выплату сюда уходит '+fmt(pace)+', если после копилок остались деньги.'
+          : 'Темп не задан — подушка получает только то, что осталось после копилок.')+'</div>'
+      + paceHint
+      + '<label class="row" style="margin-top:10px;align-items:center;gap:6px;text-transform:none;letter-spacing:0;"><input type="checkbox" style="width:auto;" data-goal-completed data-goal="'+g.id+'" '+(g.completed?'checked':'')+'> <span class="muted" style="font-size:12px;">подушка закрыта — больше не пополнять</span></label>'
+      + (g.completed && balance>=1 ? '<button class="small" data-redistribute="'+g.id+'" style="margin-top:8px;">Перераспределить остаток '+fmt(balance)+'</button>' : '')
+      + '<hr class="sep">'
+      + '<div class="row between"><b style="font-size:12px;">Траты из подушки</b><button class="small ghost" data-wd-add="'+g.id+'">+ трата</button></div>'
+      + (wdHtml || '<div class="small-note">Трат нет — так и задумано.</div>')
+      + '</div>';
+  }).join('');
+  return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Подушки</h2><button class="small" data-add-reserve>+ подушка</button></div>'
+    + '<div class="info-box" style="margin-bottom:12px;"><b>Подушка</b> — накопление без срока, которое тратить не собираемся: валюта, подушка безопасности. Сроков и этапов у неё нет, только ориентир и <b>темп</b> — сколько откладывать в каждую выплату. Деньги подушки получают <b>после копилок</b>: сначала выплата закрывает срочные копилки, затем подушки по приоритету получают свой темп, а если что-то ещё осталось — оно доливается сверху, пока ориентир не набран. В месяц с отпуском или крупной поездкой подушка может честно получить ноль.</div>'
+    + (cards || '<div class="muted" style="font-size:13px;">Подушек пока нет. Нажмите «+ подушка» или перенесите цель из копилок.</div>')
+    + '</div>';
 }
 
 /* ---------- отпуска и больничные ---------- */
@@ -2747,6 +3322,54 @@ function renderVacations(sim){
 
 /* ---------- settings ---------- */
 var holidayAddNote = '';
+/* ---------- безопасность: пароль, почта, Face ID / Touch ID ---------- */
+var authUser = null;
+var passkeyList = null, passkeyLoading = false;
+var securityMsg = { text:'', ok:false };
+function setSecurityMsg(text, ok){ securityMsg = { text:text||'', ok:!!ok }; }
+function loadPasskeys(){
+  if(!passkeysSupported() || passkeyLoading) return;
+  passkeyLoading = true;
+  supabaseClient.auth.passkey.list().then(function(r){
+    passkeyLoading = false;
+    passkeyList = (r && r.data) ? r.data : [];
+    render();
+  }).catch(function(){ passkeyLoading = false; passkeyList = []; render(); });
+}
+function renderSecurity(){
+  var email = (authUser && authUser.email) ? authUser.email : '—';
+  var pkBlock;
+  if(!passkeysSupported()){
+    pkBlock = '<div class="small-note">Это устройство или версия библиотеки не поддерживает вход по биометрии.</div>';
+  } else {
+    if(passkeyList===null) loadPasskeys();
+    var rows = (passkeyList||[]).map(function(pk){
+      return '<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line);">'
+        + '<span>'+esc(pk.friendly_name || 'Ключ')+'<span class="muted" style="font-size:11px;"> · добавлен '+(pk.created_at?ruDate(pk.created_at.slice(0,10)):'—')+(pk.last_used_at?' · использован '+ruDate(pk.last_used_at.slice(0,10)):'')+'</span></span>'
+        + '<button class="ghost small" data-passkey-del="'+esc(pk.id)+'">✕</button></div>';
+    }).join('');
+    pkBlock = (passkeyList===null ? '<div class="small-note">Загружаем список…</div>'
+      : (rows || '<div class="small-note">Ключей пока нет. Добавьте — и на этом устройстве можно будет входить по Face ID или Touch ID.</div>'))
+      + '<button class="small" data-passkey-add style="margin-top:8px;">+ добавить Face ID / Touch ID</button>';
+  }
+  return '<div class="small-note" style="margin-bottom:10px;">Вход выполнен как <b>'+esc(email)+'</b>.</div>'
+    + (securityMsg.text ? '<div class="small-note" style="color:'+(securityMsg.ok?'var(--good)':'var(--danger)')+';font-weight:600;">'+esc(securityMsg.text)+'</div>' : '')
+    + '<h3 style="font-size:14px;margin:14px 0 6px;">Сменить пароль</h3>'
+    + '<div class="grid cols-2">'
+    + '<div><label>Новый пароль</label><input type="password" id="sec-pass-1" autocomplete="new-password"></div>'
+    + '<div><label>Ещё раз</label><input type="password" id="sec-pass-2" autocomplete="new-password"></div>'
+    + '</div>'
+    + '<button class="small primary" data-change-password style="margin-top:8px;">Сохранить пароль</button>'
+    + '<h3 style="font-size:14px;margin:16px 0 6px;">Почта</h3>'
+    + '<div class="grid cols-2"><div><label>Новый адрес</label><input type="email" id="sec-email" value="" placeholder="'+esc(email)+'"></div>'
+    + '<div style="display:flex;align-items:flex-end;"><button class="small" data-change-email>Сменить почту</button></div></div>'
+    + '<div class="small-note">На новый адрес придёт письмо для подтверждения — пока вы не перейдёте по ссылке, вход остаётся по старому адресу.</div>'
+    + '<h3 style="font-size:14px;margin:16px 0 6px;">Вход по биометрии</h3>'
+    + '<div class="small-note" style="margin-bottom:6px;">Face ID на телефоне и Touch ID на компьютере. Пароль остаётся запасным входом: если устройство потеряется, войти можно будет по нему.</div>'
+    + pkBlock
+    + '<hr class="sep">'
+    + '<button class="small ghost" data-signout>Выйти из аккаунта</button>';
+}
 /* Раздел настроек: свёрнут по умолчанию, кнопки быстрых действий видны всегда */
 function settingsSection(key, title, quickHtml, bodyHtml){
   var open = !!ui.openSettings[key];
@@ -2863,6 +3486,8 @@ function renderSettings(sim){
     + '</div>'
     + '<div id="holiday-add-note" class="small-note">'+esc(holidayAddNote)+'</div>'
     + '<hr class="sep">' + wdHtml)
+
+    + settingsSection('security', 'Безопасность', '', renderSecurity())
 
     + settingsSection('about', 'О расчётах в этом инструменте', '',
       '<div class="info-box">'
@@ -3083,6 +3708,62 @@ function attachEvents(sim){
     state.goals.push({id:uid('goal'), name:'Новая цель', priority:maxP+1, target:0, deadline:todayISO(), startingBalance:0, completed:false, subgoals:[], withdrawals:[]});
     scheduleSave();
   }); });
+  root.querySelectorAll('[data-add-reserve]').forEach(function(b){ b.addEventListener('click', function(){
+    var maxP = state.goals.reduce(function(m,g){return Math.max(m,g.priority);},0);
+    var g = {id:uid('goal'), name:'Новая подушка', priority:maxP+1, target:0, deadline:'', startingBalance:0, completed:false, subgoals:[], withdrawals:[]};
+    state.goals.push(g);
+    setGoalKind(state, g.id, 'reserve');
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-goal-kind]').forEach(function(b){ b.addEventListener('click', function(){
+    var gid = b.getAttribute('data-goal'), kind = b.getAttribute('data-goal-kind');
+    var g = findGoal(gid);
+    if(!g) return;
+    if(kind==='reserve'){
+      if(g.subgoals && g.subgoals.length && !confirm('У подушки нет этапов. Перенести «'+(g.name||'цель')+'» в подушки и убрать её этапы?')) return;
+      if(g.subgoals && g.subgoals.length){
+        var last = g.subgoals[g.subgoals.length-1];
+        g.target = last.target; g.subgoals = [];
+      }
+      g.deadline = '';
+    }
+    setGoalKind(state, gid, kind);
+    ui.tab = kind==='reserve' ? 'reserves' : 'goals';
+    scheduleSave();
+  }); });
+  bindChange('[data-goal-pace]', function(el){ setGoalPace(state, el.dataset.goal, parseNum(el.value)); });
+  root.querySelectorAll('[data-create-gifts-goal]').forEach(function(b){ b.addEventListener('click', function(){
+    var maxP = state.goals.reduce(function(m,x){return Math.max(m,x.priority);},0);
+    var g = {id:uid('goal'), name:'Подарки', priority:maxP+1, target:0, deadline:'', startingBalance:0, completed:false, subgoals:[], withdrawals:[]};
+    state.goals.push(g);
+    setGoalKind(state, g.id, 'gifts');
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-gift-add]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!state.debts.gifts) state.debts.gifts = [];
+    var t = todayISO();
+    state.debts.gifts.push({ id:uid('gift'), name:'Праздник', day:parseInt(t.slice(8,10),10), month:parseInt(t.slice(5,7),10), amount:0, repeat:'yearly', year:parseInt(t.slice(0,4),10) });
+    scheduleSave();
+  }); });
+  root.querySelectorAll('[data-gift-del]').forEach(function(b){ b.addEventListener('click', function(){
+    state.debts.gifts.splice(parseInt(b.dataset.idx,10),1);
+    scheduleSave();
+  }); });
+  function giftAt(el){ return (state.debts.gifts||[])[parseInt(el.dataset.idx,10)]; }
+  bindChange('[data-gift-name]', function(el){ var x=giftAt(el); if(x) x.name=el.value; });
+  bindChange('[data-gift-amount]', function(el){ var x=giftAt(el); if(x) x.amount=Math.max(0,parseNum(el.value)); });
+  bindChange('[data-gift-repeat]', function(el){ var x=giftAt(el); if(x) x.repeat = el.value==='once' ? 'once' : 'yearly'; });
+  bindChange('[data-gift-date]', function(el){
+    var x=giftAt(el);
+    if(!x || !el.value) return;
+    x.year = parseInt(el.value.slice(0,4),10);
+    x.month = parseInt(el.value.slice(5,7),10);
+    x.day = parseInt(el.value.slice(8,10),10);
+  });
+  root.querySelectorAll('[data-pace-suggest]').forEach(function(b){ b.addEventListener('click', function(){
+    setGoalPace(state, b.getAttribute('data-pace-suggest'), parseNum(b.getAttribute('data-value')));
+    scheduleSave();
+  }); });
   root.querySelectorAll('[data-goal-del]').forEach(function(b){ b.addEventListener('click', function(){
     var id = b.getAttribute('data-goal-del'); state.goals = state.goals.filter(function(g){return g.id!==id;}); scheduleSave();
   }); });
@@ -3282,6 +3963,13 @@ function attachEvents(sim){
       scheduleSave();
     }
   }); });
+  root.querySelectorAll('[data-sub-to-wd]').forEach(function(b){ b.addEventListener('click', function(){
+    var g = findGoal(b.dataset.goal); if(!g) return;
+    var sg = g.subgoals[parseInt(b.dataset.idx,10)]; if(!sg) return;
+    if(!g.withdrawals) g.withdrawals = [];
+    g.withdrawals.push({ date: sg.deadline || todayISO(), amount: sg.target||0, note: sg.name||'', label: sg.name||'' });
+    scheduleSave();
+  }); });
   root.querySelectorAll('[data-sub-del]').forEach(function(b){ b.addEventListener('click', function(){
     var g = findGoal(b.dataset.goal); if(g){ g.subgoals.splice(parseInt(b.dataset.idx,10),1); scheduleSave(); }
   }); });
@@ -3314,6 +4002,45 @@ function attachEvents(sim){
     delete ui.openWdYears[y];
     if(ui.selectedYear===y) ui.selectedYear=null;
     scheduleSave();
+  }); });
+  root.querySelectorAll('[data-change-password]').forEach(function(b){ b.addEventListener('click', function(){
+    var p1 = (document.getElementById('sec-pass-1')||{}).value || '';
+    var p2 = (document.getElementById('sec-pass-2')||{}).value || '';
+    if(p1.length<6){ setSecurityMsg('Пароль должен быть не короче 6 символов.'); render(); return; }
+    if(p1!==p2){ setSecurityMsg('Пароли не совпадают.'); render(); return; }
+    setSecurityMsg('Сохраняем…', true); render();
+    supabaseClient.auth.updateUser({ password:p1 }).then(function(r){
+      setSecurityMsg(r.error ? ('Не получилось: '+r.error.message) : 'Пароль изменён.', !r.error);
+      render();
+    });
+  }); });
+  root.querySelectorAll('[data-change-email]').forEach(function(b){ b.addEventListener('click', function(){
+    var em = ((document.getElementById('sec-email')||{}).value||'').trim();
+    if(!em){ setSecurityMsg('Укажите новый адрес.'); render(); return; }
+    setSecurityMsg('Отправляем письмо…', true); render();
+    supabaseClient.auth.updateUser({ email:em }).then(function(r){
+      setSecurityMsg(r.error ? ('Не получилось: '+r.error.message) : 'Письмо отправлено на '+em+' — подтвердите адрес по ссылке.', !r.error);
+      render();
+    });
+  }); });
+  root.querySelectorAll('[data-passkey-add]').forEach(function(b){ b.addEventListener('click', function(){
+    setSecurityMsg('Подтвердите на устройстве…', true); render();
+    supabaseClient.auth.registerPasskey().then(function(r){
+      if(r.error){ setSecurityMsg('Не получилось добавить ключ: '+r.error.message); render(); return; }
+      setSecurityMsg('Готово: теперь можно входить по биометрии.', true);
+      passkeyList = null; render(); loadPasskeys();
+    }).catch(function(e){ setSecurityMsg('Не получилось добавить ключ: '+(e && e.message ? e.message : e)); render(); });
+  }); });
+  root.querySelectorAll('[data-passkey-del]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!confirm('Удалить этот ключ? Входить по биометрии на этом устройстве больше не получится.')) return;
+    supabaseClient.auth.passkey.delete({ passkeyId: b.getAttribute('data-passkey-del') }).then(function(r){
+      setSecurityMsg(r && r.error ? ('Не получилось удалить: '+r.error.message) : 'Ключ удалён.', !(r && r.error));
+      passkeyList = null; render(); loadPasskeys();
+    });
+  }); });
+  root.querySelectorAll('[data-signout]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!confirm('Выйти из аккаунта на этом устройстве?')) return;
+    supabaseClient.auth.signOut().then(function(){ location.reload(); });
   }); });
   root.querySelectorAll('[data-toggle-settings]').forEach(function(el){
     el.addEventListener('click', function(){
@@ -3488,7 +4215,9 @@ function moveArrayItem(arr, id, dir){
   var tmp = arr[idx]; arr[idx]=arr[newIdx]; arr[newIdx]=tmp;
 }
 function swapPriority(id, dir){
-  var sorted = state.goals.slice().sort(function(a,b){return a.priority-b.priority;});
+  var self = findGoal(id);
+  var kind = self ? goalKind(state, self) : 'bucket';
+  var sorted = kind==='reserve' ? goalsOfKind(state, 'reserve') : bucketGoals(state);
   var idx = sorted.findIndex(function(g){return g.id===id;});
   var newIdx = idx+dir;
   if(newIdx<0||newIdx>=sorted.length) return;
@@ -3499,7 +4228,15 @@ function swapPriority(id, dir){
 /* ============ boot ============ */
 async function boot(){
   root = document.getElementById('root');
+  supabaseClient.auth.onAuthStateChange(function(event){
+    if(event==='PASSWORD_RECOVERY') markRecoveryPending(true);
+  });
   await ensureSignedIn();
+  if(recoveryPending()) await askNewPassword();
+  try{
+    var ur = await supabaseClient.auth.getUser();
+    authUser = ur && ur.data ? ur.data.user : null;
+  }catch(e){ authUser = null; }
   await loadStateFromDB();
   ui = state.ui;
   render();
