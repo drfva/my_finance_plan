@@ -216,20 +216,46 @@ h2[style*="font-size:15px"]{font-size:24px!important;font-weight:800;margin:4px 
 </style>
 </head><body>
 <div id="root"></div>
-<div id="login-screen" style="display:none;max-width:320px;margin:60px auto;padding:20px;font-family:sans-serif;">
-  <h2>Вход</h2>
-  <div style="display:flex;flex-direction:column;gap:8px;">
-    <input id="login-email" type="email" placeholder="Email" style="padding:8px;">
-    <input id="login-password" type="password" placeholder="Пароль" style="padding:8px;">
-    <button id="login-btn" style="padding:8px;">Войти</button>
-    <div id="login-error" style="color:#b0453f;font-size:12px;"></div>
+<div id="login-screen" style="display:none;max-width:360px;margin:60px auto;padding:24px;">
+  <h2 style="margin-bottom:14px;">Вход</h2>
+  <div id="login-step" style="display:flex;flex-direction:column;gap:10px;">
+    <div class="field"><label>Email</label><input id="login-email" type="email" autocomplete="username"></div>
+    <div class="field"><label>Пароль</label><input id="login-password" type="password" autocomplete="current-password"></div>
+    <button id="login-btn" class="primary">Войти</button>
+    <button id="passkey-btn" style="display:none;">Войти по Face ID / Touch ID</button>
+    <button id="forgot-btn" class="ghost">Забыли пароль?</button>
   </div>
+  <div id="reset-step-1" style="display:none;flex-direction:column;gap:10px;">
+    <div class="small-note">Пришлём на почту ссылку для смены пароля. Перейдёте по ней — вернётесь сюда и зададите новый пароль.</div>
+    <div class="field"><label>Email</label><input id="reset-email" type="email" autocomplete="username"></div>
+    <button id="reset-send-btn" class="primary">Отправить ссылку</button>
+    <button id="reset-back-btn" class="ghost">Назад ко входу</button>
+  </div>
+  <div id="reset-step-2" style="display:none;flex-direction:column;gap:10px;">
+    <div class="small-note">Откройте письмо и перейдите по ссылке — вернётесь сюда уже с правом сменить пароль. Эту вкладку можно закрыть.</div>
+    <div class="small-note">Если в письме пришёл код (так бывает, когда подключён свой SMTP), введите его здесь вместе с новым паролем.</div>
+    <div class="field"><label>Код из письма (если есть)</label><input id="reset-code" inputmode="numeric" autocomplete="one-time-code"></div>
+    <div class="field"><label>Новый пароль</label><input id="reset-password" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Ещё раз</label><input id="reset-password2" type="password" autocomplete="new-password"></div>
+    <button id="reset-save-btn" class="primary">Сохранить пароль и войти</button>
+    <button id="reset-back-btn-2" class="ghost">Назад ко входу</button>
+  </div>
+  <div id="recovery-step" style="display:none;flex-direction:column;gap:10px;">
+    <div class="small-note">Вы перешли по ссылке из письма. Задайте новый пароль.</div>
+    <div class="field"><label>Новый пароль</label><input id="rec-password" type="password" autocomplete="new-password"></div>
+    <div class="field"><label>Ещё раз</label><input id="rec-password2" type="password" autocomplete="new-password"></div>
+    <button id="rec-save-btn" class="primary">Сохранить пароль</button>
+    <button id="rec-skip-btn" class="ghost">Пропустить и открыть план</button>
+  </div>
+  <div id="login-error" style="color:var(--danger);font-size:12.5px;margin-top:10px;"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+/* passkeys (Face ID / Touch ID) — экспериментальный API Supabase, включается явно */
 var supabaseClient = supabase.createClient(
     'https://crokwtmokshdankujdhx.supabase.co',
-    'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB'
+    'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB',
+    { auth: { experimental: { passkey: true } } }
   );
 </script>
 <script id="app-logic">
@@ -244,23 +270,111 @@ function hideLogin(){
   document.getElementById('root').style.display = '';
 }
 
+/* Бесплатный тариф Supabase не даёт править шаблоны писем: в письме приходит только ссылка.
+   Поэтому основной путь — переход по ссылке и смена пароля здесь же, а поле кода остаётся
+   запасным (сработает, если к проекту подключат свой SMTP и в шаблон добавят {{ .Token }}). */
+function appUrl(){ return location.origin + location.pathname; }
+function markRecoveryPending(on){
+  try{ if(on) localStorage.setItem('fin-recovery','1'); else localStorage.removeItem('fin-recovery'); }catch(e){}
+}
+function recoveryPending(){
+  try{ if(localStorage.getItem('fin-recovery')==='1') return true; }catch(e){}
+  return /type=recovery/.test(location.hash || '');
+}
+function cleanAuthUrl(){
+  try{ history.replaceState(null, '', appUrl()); }catch(e){}
+}
+/* если вернулись по ссылке восстановления — просим задать новый пароль до входа в план */
+function askNewPassword(){
+  var byId = function(id){ return document.getElementById(id); };
+  showLogin();
+  ['login-step','reset-step-1','reset-step-2'].forEach(function(id){ byId(id).style.display='none'; });
+  byId('recovery-step').style.display = 'flex';
+  var err = byId('login-error');
+  return new Promise(function(resolve){
+    function finish(){ markRecoveryPending(false); cleanAuthUrl(); hideLogin(); resolve(true); }
+    byId('rec-skip-btn').addEventListener('click', finish);
+    byId('rec-save-btn').addEventListener('click', function(){
+      var p1 = byId('rec-password').value, p2 = byId('rec-password2').value;
+      if(p1.length<6){ err.style.color='var(--danger)'; err.textContent='Пароль должен быть не короче 6 символов.'; return; }
+      if(p1!==p2){ err.style.color='var(--danger)'; err.textContent='Пароли не совпадают.'; return; }
+      err.style.color='var(--good)'; err.textContent='Сохраняем…';
+      supabaseClient.auth.updateUser({ password:p1 }).then(function(r){
+        if(r.error){ err.style.color='var(--danger)'; err.textContent='Не получилось: '+r.error.message; return; }
+        finish();
+      });
+    });
+  });
+}
+function passkeysSupported(){
+  return !!(window.PublicKeyCredential && supabaseClient.auth && supabaseClient.auth.signInWithPasskey);
+}
 function ensureSignedIn(){
   return supabaseClient.auth.getSession().then(function(res){
     if (res.data.session) { hideLogin(); return true; }
     showLogin();
     return new Promise(function(resolve){
-      document.getElementById('login-btn').addEventListener('click', function(){
-        var email = document.getElementById('login-email').value;
-        var password = document.getElementById('login-password').value;
-        supabaseClient.auth.signInWithPassword({ email: email, password: password })
-          .then(function(res2){
-            if (res2.error) {
-              document.getElementById('login-error').textContent = 'Ошибка: ' + res2.error.message;
-              return;
-            }
-            hideLogin();
-            resolve(true);
+      var byId = function(id){ return document.getElementById(id); };
+      var err = byId('login-error');
+      function msg(text, ok){ err.textContent = text || ''; err.style.color = ok ? 'var(--good)' : 'var(--danger)'; }
+      function step(which){
+        byId('login-step').style.display = which==='login' ? 'flex' : 'none';
+        byId('reset-step-1').style.display = which==='reset1' ? 'flex' : 'none';
+        byId('reset-step-2').style.display = which==='reset2' ? 'flex' : 'none';
+        msg('');
+      }
+      function done(){ hideLogin(); resolve(true); }
+
+      if(passkeysSupported()) byId('passkey-btn').style.display = '';
+
+      byId('login-btn').addEventListener('click', function(){
+        msg('Проверяем…', true);
+        supabaseClient.auth.signInWithPassword({ email: byId('login-email').value.trim(), password: byId('login-password').value })
+          .then(function(r){ if(r.error){ msg('Не получилось войти: '+r.error.message); return; } done(); });
+      });
+      byId('login-password').addEventListener('keydown', function(ev){ if(ev.key==='Enter') byId('login-btn').click(); });
+
+      byId('passkey-btn').addEventListener('click', function(){
+        msg('Ждём подтверждения…', true);
+        supabaseClient.auth.signInWithPasskey()
+          .then(function(r){ if(r.error){ msg('Вход по биометрии не удался: '+r.error.message); return; } done(); })
+          .catch(function(e){ msg('Вход по биометрии не удался: '+(e && e.message ? e.message : e)); });
+      });
+
+      byId('forgot-btn').addEventListener('click', function(){
+        byId('reset-email').value = byId('login-email').value;
+        step('reset1');
+      });
+      byId('reset-back-btn').addEventListener('click', function(){ step('login'); });
+      byId('reset-back-btn-2').addEventListener('click', function(){ step('login'); });
+
+      byId('reset-send-btn').addEventListener('click', function(){
+        var email = byId('reset-email').value.trim();
+        if(!email){ msg('Укажите почту.'); return; }
+        msg('Отправляем…', true);
+        markRecoveryPending(true);
+        supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: appUrl() }).then(function(r){
+          if(r.error){ markRecoveryPending(false); msg('Не получилось отправить письмо: '+r.error.message); return; }
+          step('reset2');
+          msg('Письмо отправлено на '+email+'. Ссылка действует ограниченное время.', true);
+        });
+      });
+
+      byId('reset-save-btn').addEventListener('click', function(){
+        var email = byId('reset-email').value.trim();
+        var code = byId('reset-code').value.trim();
+        var p1 = byId('reset-password').value, p2 = byId('reset-password2').value;
+        if(code.length<4){ msg('Кода нет — перейдите по ссылке из письма, и страница сама предложит задать пароль.'); return; }
+        if(p1.length<6){ msg('Пароль должен быть не короче 6 символов.'); return; }
+        if(p1!==p2){ msg('Пароли не совпадают.'); return; }
+        msg('Проверяем код…', true);
+        supabaseClient.auth.verifyOtp({ email: email, token: code, type: 'recovery' }).then(function(r){
+          if(r.error){ msg('Код не подошёл: '+r.error.message); return; }
+          return supabaseClient.auth.updateUser({ password: p1 }).then(function(r2){
+            if(r2.error){ msg('Пароль не сохранился: '+r2.error.message); return; }
+            done();
           });
+        });
       });
     });
   });
@@ -1142,6 +1256,14 @@ function simulate(st){
      ушли РАНЬШЕ их собственного срока. Этап, потраченный в свой срок или позже (поездка,
      подарок), остаётся засчитанным навсегда: это и есть плановая трата. Так сумма,
      накопленная в 2026-м и потраченная тогда же, больше не засчитывает этап 2027 года. */
+  /* Трата считается плановой для этапа, если она не раньше срока этапа или не более чем
+     за 45 дней до него: поездку 20.07 при сроке 31.07 планировали именно на эти деньги,
+     а трата за год до срока — это чужие деньги, и прогресс этапа надо откатить. */
+  function isPlannedSpend(deadline, dateISO){
+    if(!deadline) return true;
+    if(dateISO >= deadline) return true;
+    return daysBetween(dateISO, deadline) <= 45;
+  }
   function withdrawFromGoal(gid, amount, dateISO){
     goalSaved[gid] = (goalSaved[gid]||0) - amount;
     var ms = msByGoal[gid];
@@ -1152,7 +1274,7 @@ function simulate(st){
        Прогресс следующего этапа при этом не страдает — деньги на поездку копились отдельно. */
     for(var i=0; i<pool.length && left>0.0001; i++){
       if(pool[i].left<=0) continue;
-      if(pool[i].deadline && pool[i].deadline > dateISO) continue;
+      if(!isPlannedSpend(pool[i].deadline, dateISO)) continue;
       var planned = Math.min(left, pool[i].left);
       pool[i].left -= planned;
       left -= planned;
@@ -1164,7 +1286,7 @@ function simulate(st){
     /* 3. и только потом откатывает закрытые этапы, чьи деньги ушли РАНЬШЕ их срока */
     while(left > 0.0001 && phaseIdx[gid] > 0){
       var prevIdx = phaseIdx[gid]-1, prev = ms[prevIdx];
-      if(!prev.deadline || dateISO >= prev.deadline) break;
+      if(isPlannedSpend(prev.deadline, dateISO)) break;
       phaseIdx[gid] = prevIdx;
       milestoneDates[gid][prevIdx] = null;
       for(var j=pool.length-1; j>=0; j--){ if(pool[j].idx===prevIdx){ pool.splice(j,1); break; } }
@@ -1695,41 +1817,65 @@ function renderDashboard(sim){
     + statCard('Свободный остаток', fmt(totalUnallocated))
     + '</div>';
   var shortfallBox = shortfalls ? '<div class="info-box" style="border:1px solid var(--danger);color:var(--danger);background:var(--danger-soft);"><b>'+shortfalls+' период(а/ов)</b> с дефицитом — расходы превышают доход. Загляните на вкладку «Периоды».</div>' : '';
+  /* Карточка цели на Обзоре — про выбранный год: какие этапы закрываются в этом году
+     (по сроку, а у этапов без срока — по прогнозу) и сколько за год в неё отложено. */
+  function goalYearStats(g){
+    var ms = goalMilestones(g);
+    var dates = (sim.milestoneDates && sim.milestoneDates[g.id]) || [];
+    var stages = [];
+    ms.forEach(function(m, i){
+      var ach = dates[i];
+      var key = m.deadline || (ach && ach!=='pre' ? ach : '');
+      if(key && parseInt(key.slice(0,4),10)===activeYear) stages.push({ m:m, idx:i, achievedDate: ach });
+    });
+    var saved = 0;
+    sim.rows.forEach(function(r){ if(r.period.monthRef.y===activeYear) saved += r.allocations[g.id]||0; });
+    var nextDate = '';
+    for(var i=0;i<ms.length;i++){ if(!dates[i]) break; }
+    for(var j=0;j<ms.length;j++){
+      if(dates[j] && dates[j]!=='pre' && parseInt(dates[j].slice(0,4),10)>activeYear){ nextDate = dates[j]; break; }
+    }
+    return {
+      stages: stages,
+      saved: Math.round(saved),
+      target: Math.round(stages.reduce(function(sum,x){ return sum+(x.m.target||0); },0)),
+      total: goalFinalTarget(g),
+      nextDate: nextDate
+    };
+  }
+  function goalYearPill(g, stats){
+    if(g.completed) return { label:'Закрыта', cls:'ok' };
+    if(stats.stages.length){
+      var late = stats.stages.some(function(x){ return milestoneStatusPill(x.m, x.achievedDate).cls!=='ok'; });
+      return late ? { label:'Есть отставание', cls:'warn' } : { label:'В графике', cls:'ok' };
+    }
+    if(stats.nextDate) return { label:'Прогноз: '+ruDate(stats.nextDate), cls:'' };
+    return { label:'Не достигается в пределах плана', cls:'danger' };
+  }
   function goalMiniCard(g){
-        var finalTarget = goalFinalTarget(g);
-        var saved = goalCumulativeProgress(g, sim);
-        var potBalance = goalBalanceAt(g, sim, todayISO());
-        var pctRaw = finalTarget>0 ? Math.round(saved/finalTarget*100) : 0;
-        var pct = Math.max(0, Math.min(100, pctRaw));
-        var st_ = goalOverallStatus(g, sim);
-        var hasSub = g.subgoals && g.subgoals.length;
-        var achievements = milestoneAchievements(g, sim);
-        /* For a goal with a single (non-subgoal) target and a deadline, show the same
-           on-track/late traffic-light pill that subgoals already get via milestoneStatusPill,
-           instead of just echoing the deadline as inert text — a bare "к 15.02.2027" reads as
-           a promise the goal will land on time even when the simulation shows it won't. */
-        var deadlineLabel;
-        if(hasSub){
-          deadlineLabel = '';
-        } else if(g.deadline){
-          var soloPill0 = milestoneStatusPill(goalMilestones(g)[0], achievements[0].achievedDate);
-          deadlineLabel = '<span class="pill '+soloPill0.cls+'" style="font-size:10px;">'+soloPill0.label+'</span>';
-        } else {
-          deadlineLabel = achievements[0].achievedDate ? achievedDateLabel(achievements[0].achievedDate,'прогноз: ','уже накоплено') : 'без срока';
-        }
-        var subRows = hasSub ? '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">'
-          + g.subgoals.map(function(sg,si){
-              var pill = milestoneStatusPill(sg, achievements[si]?achievements[si].achievedDate:null);
-              return '<div class="row between" style="font-size:11px;"><span class="muted">'+esc(sg.name)+' · '+fmt(sg.target)+'</span><span class="pill '+pill.cls+'" style="font-size:10px;">'+pill.label+'</span></div>';
-            }).join('')
-          + '</div>' : '';
-        return '<div class="stat" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;">'
-          + '<div class="row between"><b>'+esc(g.name)+'</b><span class="pill '+st_.cls+'">'+st_.label+'</span></div>'
-          + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:6px 0;"><i style="width:'+pct+'%"></i></div>'
-          + '<div class="row between muted" style="font-size:12px;"><span class="num">'+fmt(saved)+' / '+fmt(finalTarget)+'</span><span>'+deadlineLabel+'</span></div>'
-          + '<div class="muted" style="font-size:11px;">на счету сейчас: <span class="num">'+fmt(potBalance)+'</span></div>'
-          + subRows
-          + '</div>';
+    var st2 = goalYearStats(g);
+    var base = st2.target>0 ? st2.target : st2.total;
+    var pctRaw = base>0 ? Math.round(st2.saved/base*100) : 0;
+    var pct = Math.max(0, Math.min(100, pctRaw));
+    var pill = goalYearPill(g, st2);
+    var potBalance = goalBalanceAt(g, sim, todayISO());
+    var stageRows = st2.stages.length
+      ? '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">'
+        + st2.stages.map(function(x){
+            var p = milestoneStatusPill(x.m, x.achievedDate);
+            return '<div class="row between" style="font-size:11px;"><span class="muted">'+esc(x.m.name||g.name)+' · '+fmt(x.m.target)+'</span>'
+              + '<span class="pill '+p.cls+'" style="font-size:10px;">'+p.label+'</span></div>';
+          }).join('')
+        + '</div>'
+      : '<div class="muted" style="font-size:11px;margin-top:4px;">В '+activeYear+' году ничего не закрывается — копим дальше.</div>';
+    return '<div class="stat" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;">'
+      + '<div class="row between"><b>'+esc(g.name)+'</b><span class="pill '+pill.cls+'">'+pill.label+'</span></div>'
+      + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:6px 0;"><i style="width:'+pct+'%"></i></div>'
+      + '<div class="row between muted" style="font-size:12px;"><span class="num">отложим в '+activeYear+': '+fmt(st2.saved)+' / '+fmt(base)+'</span>'
+      + '<span>'+(st2.target>0 ? 'цель года' : 'до общей суммы')+'</span></div>'
+      + '<div class="muted" style="font-size:11px;">на счету сейчас: <span class="num">'+fmt(potBalance)+'</span></div>'
+      + stageRows
+      + '</div>';
   }
   function goalGroupCard(title, list, hint){
     if(!list.length) return '';
@@ -1739,8 +1885,33 @@ function renderDashboard(sim){
       + list.map(goalMiniCard).join('')
       + '</div></div>';
   }
-  var goalsHtml = goalGroupCard('Копилки', goalsOfKind(state,'bucket'), 'получают деньги первыми')
-    + goalGroupCard('Подушки', goalsOfKind(state,'reserve'), 'получают то, что осталось после копилок');
+  /* подарки — отдельным блоком внизу, только праздники выбранного года */
+  function giftsYearCard(){
+    var gg = giftsGoal(state);
+    if(!gg) return '';
+    var dates = (sim.milestoneDates && sim.milestoneDates[gg.id]) || [];
+    var rows = (gg.subgoals||[]).map(function(sg, si){ return { sg:sg, si:si }; })
+      .filter(function(x){ return x.sg.deadline && parseInt(x.sg.deadline.slice(0,4),10)===activeYear; });
+    if(!rows.length) return '';
+    var total = rows.reduce(function(sum,x){ return sum+(x.sg.target||0); },0);
+    var saved = 0;
+    sim.rows.forEach(function(r){ if(r.period.monthRef.y===activeYear) saved += r.allocations[gg.id]||0; });
+    return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Подарки '+activeYear+'</h2>'
+      + '<span class="muted" style="font-size:12px;">обязательные суммы к датам — получают деньги первыми</span></div>'
+      + '<div class="table-scroll"><table><tr><th>Дата</th><th>Праздник</th><th class="num">Сумма</th><th>Статус</th></tr>'
+      + rows.map(function(x){
+          var p = milestoneStatusPill(x.sg, dates[x.si]);
+          return '<tr'+(x.sg.deadline<todayISO()?' style="opacity:.6;"':'')+'><td class="num" style="text-align:left;">'+ruDate(x.sg.deadline)+'</td>'
+            + '<td>'+esc(x.sg.name)+'</td><td class="num">'+fmt(x.sg.target)+'</td>'
+            + '<td><span class="pill '+p.cls+'" style="font-size:10px;">'+p.label+'</span></td></tr>';
+        }).join('')
+      + '<tr><td><b>Итого за год</b></td><td></td><td class="num"><b>'+fmt(total)+'</b></td>'
+      + '<td class="muted" style="font-size:11px;">отложим в '+activeYear+': '+fmt(Math.round(saved))+'</td></tr>'
+      + '</table></div></div>';
+  }
+  var goalsHtml = goalGroupCard('Копилки', bucketGoals(state), 'получают деньги первыми')
+    + goalGroupCard('Подушки', goalsOfKind(state,'reserve'), 'получают то, что осталось после копилок')
+    + giftsYearCard();
   var view = ui.dashView==='income' ? renderDashIncome(activeYear)
     : ui.dashView==='expenses' ? renderDashExpenses(sim, activeYear)
     : goalsHtml;
@@ -3151,6 +3322,54 @@ function renderVacations(sim){
 
 /* ---------- settings ---------- */
 var holidayAddNote = '';
+/* ---------- безопасность: пароль, почта, Face ID / Touch ID ---------- */
+var authUser = null;
+var passkeyList = null, passkeyLoading = false;
+var securityMsg = { text:'', ok:false };
+function setSecurityMsg(text, ok){ securityMsg = { text:text||'', ok:!!ok }; }
+function loadPasskeys(){
+  if(!passkeysSupported() || passkeyLoading) return;
+  passkeyLoading = true;
+  supabaseClient.auth.passkey.list().then(function(r){
+    passkeyLoading = false;
+    passkeyList = (r && r.data) ? r.data : [];
+    render();
+  }).catch(function(){ passkeyLoading = false; passkeyList = []; render(); });
+}
+function renderSecurity(){
+  var email = (authUser && authUser.email) ? authUser.email : '—';
+  var pkBlock;
+  if(!passkeysSupported()){
+    pkBlock = '<div class="small-note">Это устройство или версия библиотеки не поддерживает вход по биометрии.</div>';
+  } else {
+    if(passkeyList===null) loadPasskeys();
+    var rows = (passkeyList||[]).map(function(pk){
+      return '<div class="row between" style="padding:6px 0;border-bottom:1px solid var(--line);">'
+        + '<span>'+esc(pk.friendly_name || 'Ключ')+'<span class="muted" style="font-size:11px;"> · добавлен '+(pk.created_at?ruDate(pk.created_at.slice(0,10)):'—')+(pk.last_used_at?' · использован '+ruDate(pk.last_used_at.slice(0,10)):'')+'</span></span>'
+        + '<button class="ghost small" data-passkey-del="'+esc(pk.id)+'">✕</button></div>';
+    }).join('');
+    pkBlock = (passkeyList===null ? '<div class="small-note">Загружаем список…</div>'
+      : (rows || '<div class="small-note">Ключей пока нет. Добавьте — и на этом устройстве можно будет входить по Face ID или Touch ID.</div>'))
+      + '<button class="small" data-passkey-add style="margin-top:8px;">+ добавить Face ID / Touch ID</button>';
+  }
+  return '<div class="small-note" style="margin-bottom:10px;">Вход выполнен как <b>'+esc(email)+'</b>.</div>'
+    + (securityMsg.text ? '<div class="small-note" style="color:'+(securityMsg.ok?'var(--good)':'var(--danger)')+';font-weight:600;">'+esc(securityMsg.text)+'</div>' : '')
+    + '<h3 style="font-size:14px;margin:14px 0 6px;">Сменить пароль</h3>'
+    + '<div class="grid cols-2">'
+    + '<div><label>Новый пароль</label><input type="password" id="sec-pass-1" autocomplete="new-password"></div>'
+    + '<div><label>Ещё раз</label><input type="password" id="sec-pass-2" autocomplete="new-password"></div>'
+    + '</div>'
+    + '<button class="small primary" data-change-password style="margin-top:8px;">Сохранить пароль</button>'
+    + '<h3 style="font-size:14px;margin:16px 0 6px;">Почта</h3>'
+    + '<div class="grid cols-2"><div><label>Новый адрес</label><input type="email" id="sec-email" value="" placeholder="'+esc(email)+'"></div>'
+    + '<div style="display:flex;align-items:flex-end;"><button class="small" data-change-email>Сменить почту</button></div></div>'
+    + '<div class="small-note">На новый адрес придёт письмо для подтверждения — пока вы не перейдёте по ссылке, вход остаётся по старому адресу.</div>'
+    + '<h3 style="font-size:14px;margin:16px 0 6px;">Вход по биометрии</h3>'
+    + '<div class="small-note" style="margin-bottom:6px;">Face ID на телефоне и Touch ID на компьютере. Пароль остаётся запасным входом: если устройство потеряется, войти можно будет по нему.</div>'
+    + pkBlock
+    + '<hr class="sep">'
+    + '<button class="small ghost" data-signout>Выйти из аккаунта</button>';
+}
 /* Раздел настроек: свёрнут по умолчанию, кнопки быстрых действий видны всегда */
 function settingsSection(key, title, quickHtml, bodyHtml){
   var open = !!ui.openSettings[key];
@@ -3267,6 +3486,8 @@ function renderSettings(sim){
     + '</div>'
     + '<div id="holiday-add-note" class="small-note">'+esc(holidayAddNote)+'</div>'
     + '<hr class="sep">' + wdHtml)
+
+    + settingsSection('security', 'Безопасность', '', renderSecurity())
 
     + settingsSection('about', 'О расчётах в этом инструменте', '',
       '<div class="info-box">'
@@ -3782,6 +4003,45 @@ function attachEvents(sim){
     if(ui.selectedYear===y) ui.selectedYear=null;
     scheduleSave();
   }); });
+  root.querySelectorAll('[data-change-password]').forEach(function(b){ b.addEventListener('click', function(){
+    var p1 = (document.getElementById('sec-pass-1')||{}).value || '';
+    var p2 = (document.getElementById('sec-pass-2')||{}).value || '';
+    if(p1.length<6){ setSecurityMsg('Пароль должен быть не короче 6 символов.'); render(); return; }
+    if(p1!==p2){ setSecurityMsg('Пароли не совпадают.'); render(); return; }
+    setSecurityMsg('Сохраняем…', true); render();
+    supabaseClient.auth.updateUser({ password:p1 }).then(function(r){
+      setSecurityMsg(r.error ? ('Не получилось: '+r.error.message) : 'Пароль изменён.', !r.error);
+      render();
+    });
+  }); });
+  root.querySelectorAll('[data-change-email]').forEach(function(b){ b.addEventListener('click', function(){
+    var em = ((document.getElementById('sec-email')||{}).value||'').trim();
+    if(!em){ setSecurityMsg('Укажите новый адрес.'); render(); return; }
+    setSecurityMsg('Отправляем письмо…', true); render();
+    supabaseClient.auth.updateUser({ email:em }).then(function(r){
+      setSecurityMsg(r.error ? ('Не получилось: '+r.error.message) : 'Письмо отправлено на '+em+' — подтвердите адрес по ссылке.', !r.error);
+      render();
+    });
+  }); });
+  root.querySelectorAll('[data-passkey-add]').forEach(function(b){ b.addEventListener('click', function(){
+    setSecurityMsg('Подтвердите на устройстве…', true); render();
+    supabaseClient.auth.registerPasskey().then(function(r){
+      if(r.error){ setSecurityMsg('Не получилось добавить ключ: '+r.error.message); render(); return; }
+      setSecurityMsg('Готово: теперь можно входить по биометрии.', true);
+      passkeyList = null; render(); loadPasskeys();
+    }).catch(function(e){ setSecurityMsg('Не получилось добавить ключ: '+(e && e.message ? e.message : e)); render(); });
+  }); });
+  root.querySelectorAll('[data-passkey-del]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!confirm('Удалить этот ключ? Входить по биометрии на этом устройстве больше не получится.')) return;
+    supabaseClient.auth.passkey.delete({ passkeyId: b.getAttribute('data-passkey-del') }).then(function(r){
+      setSecurityMsg(r && r.error ? ('Не получилось удалить: '+r.error.message) : 'Ключ удалён.', !(r && r.error));
+      passkeyList = null; render(); loadPasskeys();
+    });
+  }); });
+  root.querySelectorAll('[data-signout]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!confirm('Выйти из аккаунта на этом устройстве?')) return;
+    supabaseClient.auth.signOut().then(function(){ location.reload(); });
+  }); });
   root.querySelectorAll('[data-toggle-settings]').forEach(function(el){
     el.addEventListener('click', function(){
       var key = el.getAttribute('data-toggle-settings');
@@ -3968,7 +4228,15 @@ function swapPriority(id, dir){
 /* ============ boot ============ */
 async function boot(){
   root = document.getElementById('root');
+  supabaseClient.auth.onAuthStateChange(function(event){
+    if(event==='PASSWORD_RECOVERY') markRecoveryPending(true);
+  });
   await ensureSignedIn();
+  if(recoveryPending()) await askNewPassword();
+  try{
+    var ur = await supabaseClient.auth.getUser();
+    authUser = ur && ur.data ? ur.data.user : null;
+  }catch(e){ authUser = null; }
   await loadStateFromDB();
   ui = state.ui;
   render();
