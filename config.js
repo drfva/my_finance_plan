@@ -25,8 +25,8 @@
 
   var DEV = {
     env: 'dev',
-    url: 'https://ТЕСТОВЫЙ-ПРОЕКТ.supabase.co',
-    key: 'sb_publishable_ТЕСТОВЫЙ_КЛЮЧ',
+    url: 'https://aostkaxeytjuuolclugs.supabase.co',
+    key: 'sb_publishable_H5X3q94o_TGHyte_VMvcuQ_hdY9CrhN',
     returnUrl: 'http://localhost:5500/index.html'
   };
 
