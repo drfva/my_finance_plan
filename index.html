@@ -190,6 +190,7 @@ input:disabled,select:disabled{background:var(--surface-3);color:var(--muted);cu
 .dash-tile.active .v{color:var(--on-accent);}
 .dash-tile.active .l{color:var(--on-accent-muted);}
 .table-scroll{overflow-x:auto;}
+.progress > i.year-start{position:absolute;left:0;top:0;height:100%;background:var(--accent);opacity:.35;border-radius:inherit;}
 /* факт против плана: меньше плана — мягкий зелёный, ±5% — обычный фон, больше плана — мягкий красный */
 .fact-under td{background:var(--good-soft);}
 .fact-under td.diff{color:var(--good);font-weight:700;}
@@ -234,6 +235,7 @@ h2[style*="font-size:15px"]{font-size:24px!important;font-weight:800;margin:4px 
   <div id="reset-step-2" style="display:none;flex-direction:column;gap:10px;">
     <div class="small-note">Откройте письмо и перейдите по ссылке — вернётесь сюда уже с правом сменить пароль. Эту вкладку можно закрыть.</div>
     <div class="small-note">Если в письме пришёл код (так бывает, когда подключён свой SMTP), введите его здесь вместе с новым паролем.</div>
+    <div class="small-note" id="reset-return-url"></div>
     <div class="field"><label>Код из письма (если есть)</label><input id="reset-code" inputmode="numeric" autocomplete="one-time-code"></div>
     <div class="field"><label>Новый пароль</label><input id="reset-password" type="password" autocomplete="new-password"></div>
     <div class="field"><label>Ещё раз</label><input id="reset-password2" type="password" autocomplete="new-password"></div>
@@ -257,6 +259,9 @@ var supabaseClient = supabase.createClient(
     'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB',
     { auth: { experimental: { passkey: true } } }
   );
+/* Адрес возврата из писем Supabase. Оставьте пустым — возьмётся адрес текущей страницы.
+   Этот же адрес должен быть в Supabase: Authentication → URL Configuration → Redirect URLs. */
+window.APP_RETURN_URL = '';
 </script>
 <script id="app-logic">
 (function(){
@@ -273,7 +278,14 @@ function hideLogin(){
 /* Бесплатный тариф Supabase не даёт править шаблоны писем: в письме приходит только ссылка.
    Поэтому основной путь — переход по ссылке и смена пароля здесь же, а поле кода остаётся
    запасным (сработает, если к проекту подключат свой SMTP и в шаблон добавят {{ .Token }}). */
-function appUrl(){ return location.origin + location.pathname; }
+/* Адрес, куда Supabase вернёт из письма. По умолчанию — текущая страница; если понадобится,
+   впишите адрес вручную в APP_RETURN_URL рядом с настройками клиента. */
+function appUrl(){
+  if(window.APP_RETURN_URL) return window.APP_RETURN_URL;
+  var path = location.pathname || '/';
+  if(!/\.html$/.test(path) && path.slice(-1)!=='/') path += '/';
+  return location.origin + path;
+}
 function markRecoveryPending(on){
   try{ if(on) localStorage.setItem('fin-recovery','1'); else localStorage.removeItem('fin-recovery'); }catch(e){}
 }
@@ -356,6 +368,8 @@ function ensureSignedIn(){
         supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: appUrl() }).then(function(r){
           if(r.error){ markRecoveryPending(false); msg('Не получилось отправить письмо: '+r.error.message); return; }
           step('reset2');
+          var ru = byId('reset-return-url');
+          if(ru) ru.textContent = 'Ссылка вернёт вас на адрес: '+appUrl()+' — он должен быть в списке Redirect URLs в настройках Supabase.';
           msg('Письмо отправлено на '+email+'. Ссылка действует ограниченное время.', true);
         });
       });
@@ -1572,6 +1586,18 @@ function cardStatusPill(fc, sim){
   return { label:'Не успевает закрыться до '+ruDate(fc.state.deadline), cls:'danger' };
 }
 
+/* сколько всего засчитано в цель на дату: закрытые этапы плюс прогресс текущего */
+function goalProgressAt(g, sim, dateISO){
+  var ms = goalMilestones(g);
+  var row = lastRowAtOrBefore(sim, dateISO);
+  var ph = row ? row.phaseSnapshot : sim.initialPhase;
+  var idx = (ph.idx[g.id]||0), saved = (ph.saved[g.id]||0);
+  var sum = 0;
+  for(var i=0;i<idx && i<ms.length;i++) sum += ms[i].target||0;
+  if(idx<ms.length) sum += saved;
+  return sum;
+}
+
 /* ============ нормализация состояния перед отрисовкой ============ */
 /* подцели всегда идут по сроку закрытия: раньше срок — выше; без срока — в конце */
 /* траты и пополнения показываем и считаем по датам */
@@ -1830,16 +1856,41 @@ function renderDashboard(sim){
     });
     var saved = 0;
     sim.rows.forEach(function(r){ if(r.period.monthRef.y===activeYear) saved += r.allocations[g.id]||0; });
+    /* прогресс считаем как состояние копилки: сколько было засчитано на начало года и сколько
+       стало к концу. Этапы, закрытые в прошлые годы, из базы вычитаем — иначе шкала не сходится. */
+    var reserve = isReserveGoal(state, g);
+    var stageIdx = {};
+    stages.forEach(function(x){ stageIdx[x.idx] = true; });
+    var closedBefore = 0;
+    ms.forEach(function(m, i){
+      var dt = dates[i];
+      if(!dt || stageIdx[i]) return;
+      if(dt==='pre' || parseInt(dt.slice(0,4),10) < activeYear) closedBefore += m.target||0;
+    });
+    var startAll = goalProgressAt(g, sim, (activeYear-1)+'-12-31');
+    var endAll = goalProgressAt(g, sim, activeYear+'-12-31');
     var nextDate = '';
     for(var i=0;i<ms.length;i++){ if(!dates[i]) break; }
     for(var j=0;j<ms.length;j++){
       if(dates[j] && dates[j]!=='pre' && parseInt(dates[j].slice(0,4),10)>activeYear){ nextDate = dates[j]; break; }
     }
+    var stageTarget = Math.round(stages.reduce(function(sum,x){ return sum+(x.m.target||0); },0));
+    var total = goalFinalTarget(g);
+    /* подушку меряем целиком, без деления на этапы */
+    var base = reserve ? total : (stageTarget>0 ? stageTarget : Math.max(0, total-closedBefore));
+    var startVal = reserve ? startAll : Math.max(0, startAll-closedBefore);
+    var endVal = reserve ? endAll : Math.max(0, endAll-closedBefore);
+    /* всё уже было закрыто раньше — показываем цель целиком, как накопленную */
+    if(!reserve && base<=0){ base = total; startVal = startAll; endVal = endAll; }
     return {
       stages: stages,
+      reserve: reserve,
       saved: Math.round(saved),
-      target: Math.round(stages.reduce(function(sum,x){ return sum+(x.m.target||0); },0)),
-      total: goalFinalTarget(g),
+      target: stageTarget,
+      total: total,
+      base: Math.round(base),
+      startVal: Math.round(startVal),
+      endVal: Math.round(endVal),
       nextDate: nextDate
     };
   }
@@ -1850,16 +1901,21 @@ function renderDashboard(sim){
       return late ? { label:'Есть отставание', cls:'warn' } : { label:'В графике', cls:'ok' };
     }
     if(stats.nextDate) return { label:'Прогноз: '+ruDate(stats.nextDate), cls:'' };
+    var ms = goalMilestones(g), dates = (sim.milestoneDates && sim.milestoneDates[g.id]) || [];
+    var allClosed = ms.every(function(m,i){ return !!dates[i]; });
+    if(allClosed) return { label:'Накоплена', cls:'ok' };
     return { label:'Не достигается в пределах плана', cls:'danger' };
   }
   function goalMiniCard(g){
     var st2 = goalYearStats(g);
-    var base = st2.target>0 ? st2.target : st2.total;
-    var pctRaw = base>0 ? Math.round(st2.saved/base*100) : 0;
+    var base = st2.base;
+    var pctRaw = base>0 ? Math.round(st2.endVal/base*100) : 0;
     var pct = Math.max(0, Math.min(100, pctRaw));
+    var startPct = base>0 ? Math.max(0, Math.min(100, Math.round(st2.startVal/base*100))) : 0;
+    var grew = st2.endVal - st2.startVal;
     var pill = goalYearPill(g, st2);
     var potBalance = goalBalanceAt(g, sim, todayISO());
-    var stageRows = st2.stages.length
+    var stageRows = st2.reserve ? '' : (st2.stages.length
       ? '<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px;">'
         + st2.stages.map(function(x){
             var p = milestoneStatusPill(x.m, x.achievedDate);
@@ -1867,13 +1923,16 @@ function renderDashboard(sim){
               + '<span class="pill '+p.cls+'" style="font-size:10px;">'+p.label+'</span></div>';
           }).join('')
         + '</div>'
-      : '<div class="muted" style="font-size:11px;margin-top:4px;">В '+activeYear+' году ничего не закрывается — копим дальше.</div>';
+      : '<div class="muted" style="font-size:11px;margin-top:4px;">В '+activeYear+' году ничего не закрывается — копим дальше.</div>');
+    var baseLabel = st2.reserve ? 'общая сумма' : (st2.target>0 ? 'цель года' : 'до общей суммы');
     return '<div class="stat" style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;">'
       + '<div class="row between"><b>'+esc(g.name)+'</b><span class="pill '+pill.cls+'">'+pill.label+'</span></div>'
-      + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:6px 0;"><i style="width:'+pct+'%"></i></div>'
-      + '<div class="row between muted" style="font-size:12px;"><span class="num">отложим в '+activeYear+': '+fmt(st2.saved)+' / '+fmt(base)+'</span>'
-      + '<span>'+(st2.target>0 ? 'цель года' : 'до общей суммы')+'</span></div>'
-      + '<div class="muted" style="font-size:11px;">на счету сейчас: <span class="num">'+fmt(potBalance)+'</span></div>'
+      + '<div class="progress'+(pctRaw>100?' over':'')+'" style="margin:6px 0;"><i style="width:'+pct+'%"></i>'
+      + (startPct>0 ? '<i class="year-start" style="width:'+startPct+'%"></i>' : '')+'</div>'
+      + '<div class="row between muted" style="font-size:12px;"><span class="num">'+fmt(st2.endVal)+' / '+fmt(base)+' ('+pct+'%)</span>'
+      + '<span>'+baseLabel+'</span></div>'
+      + '<div class="muted" style="font-size:11px;">на начало '+activeYear+': <span class="num">'+fmt(st2.startVal)+'</span> · за год '+(grew>=0?'+':'')+fmt(grew)
+      + ' · на счету сейчас: <span class="num">'+fmt(potBalance)+'</span></div>'
       + stageRows
       + '</div>';
   }
@@ -3368,7 +3427,8 @@ function renderSecurity(){
     + '<div class="small-note" style="margin-bottom:6px;">Face ID на телефоне и Touch ID на компьютере. Пароль остаётся запасным входом: если устройство потеряется, войти можно будет по нему.</div>'
     + pkBlock
     + '<hr class="sep">'
-    + '<button class="small ghost" data-signout>Выйти из аккаунта</button>';
+    + '<div class="small-note">Адрес возврата из писем: <b>'+esc(appUrl())+'</b>. Он должен быть указан в Supabase: Authentication → URL Configuration, в Site URL или в списке Redirect URLs.</div>'
+    + '<button class="small ghost" data-signout style="margin-top:8px;">Выйти из аккаунта</button>';
 }
 /* Раздел настроек: свёрнут по умолчанию, кнопки быстрых действий видны всегда */
 function settingsSection(key, title, quickHtml, bodyHtml){
