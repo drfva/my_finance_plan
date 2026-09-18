@@ -473,11 +473,22 @@ function clone(o){ return JSON.parse(JSON.stringify(o)); }
 function uid(p){ return p+'-'+Math.random().toString(36).slice(2,9); }
 
 var state = null;
+var needsWizard = false;
+/* пустой план для первого запуска: всё вводится в мастере настройки */
+function blankState(){
+  var s = clone(DEFAULT_STATE);
+  s.periods = []; s.goals = []; s.categories = []; s.vacations = []; s.sickLeaves = [];
+  s.categoryOverrides = {}; s.savingsOverrides = {};
+  s.oklad = { history: [] };
+  s.income2026 = s.income2026.map(function(){ return 0; });
+  s.meta = { holidays: [] };
+  return s;
+}
 var publishTimer = null;
 var saveStatus = 'idle';
 /* кредитки и рассрочки хранятся в отдельных таблицах (debts.sql) через get/save_debts_state */
 var debtsStorageOk = false;
-function emptyDebts(){ return { cards:[], installments:[], paymentOverrides:{}, workingDays:{}, actuals:{}, goalSettings:{}, gifts:[] }; }
+function emptyDebts(){ return { cards:[], installments:[], paymentOverrides:{}, workingDays:{}, actuals:{}, goalSettings:{}, gifts:[], payoutSchedule:[] }; }
 function normalizeDebts(d){
   d = (d && typeof d==='object') ? d : {};
   var out = emptyDebts();
@@ -512,6 +523,12 @@ function normalizeDebts(d){
       if(dst.total || dst.items) outMonth[cid] = dst; 
     });
     if(Object.keys(outMonth).length) out.actuals[ym] = outMonth;
+  });
+  (d.payoutSchedule||[]).forEach(function(x){
+    out.payoutSchedule.push({
+      day: Math.max(1, Math.min(31, Number(x.day)||1)),
+      forMonth: x.forMonth==='previous' ? 'previous' : 'current'
+    });
   });
   var gs = d.goalSettings||{};
   Object.keys(gs).forEach(function(gid){
@@ -548,7 +565,7 @@ async function loadStateFromDB(){
     s = result.data;
   }catch(e){ console.error('Ошибка загрузки:', e); }
 
-  if(!s || Object.keys(s).length===0) s = clone(DEFAULT_STATE);
+  if(!s || Object.keys(s).length===0){ s = blankState(); needsWizard = true; }
   /* forward-compat: fill in fields introduced after this state was first saved */
   if(!s.ui) s.ui = clone(DEFAULT_STATE.ui);
   if(s.ui.selectedYear===undefined) s.ui.selectedYear = null;
@@ -628,14 +645,40 @@ function isWorkingDay(y,m,d,holidaySet){
   return true;
 }
 /* рабочие дни по календарю (выходные, стандартные праздники и добавленные даты) */
+function halfRange(y,m,half){
+  var dim = daysInMonth(y,m);
+  if(half==='full') return { start:1, end:dim };
+  return half==='first' ? { start:1, end:15 } : { start:16, end:dim };
+}
 function workingDaysInHalfCalendar(y,m,half,st){
   var holidaySet = new Set(st.meta.holidays);
-  var dim = daysInMonth(y,m);
-  var start = half==='first'?1:16;
-  var end = half==='first'?15:dim;
+  var range = halfRange(y,m,half);
+  var start = range.start;
+  var end = range.end;
   var c=0;
   for(var d=start; d<=end; d++){ if(isWorkingDay(y,m,d,holidaySet)) c++; }
   return c;
+}
+/* График выплат: сколько раз в месяц платят и какие это числа.
+   forMonth: 'current' — выплата за текущий месяц, 'previous' — за прошлый
+   (зарплата 5-го числа за прошлый месяц). Одна выплата в месяц — период half='full'. */
+var DEFAULT_PAYOUT_SCHEDULE = [
+  { day:20, forMonth:'current' },
+  { day:5,  forMonth:'previous' }
+];
+function payoutSchedule(st){
+  var list = (st.debts && st.debts.payoutSchedule) || [];
+  return list.length ? list : DEFAULT_PAYOUT_SCHEDULE;
+}
+function payoutsPerMonth(st){ return payoutSchedule(st).length; }
+/* какой половине месяца соответствует слот графика */
+function scheduleHalves(list){
+  if(list.length<=1) return ['full'];
+  var order = list.map(function(x,i){ return { i:i, key:(x.forMonth==='previous'?1:0)+'-'+pad2(x.day) }; });
+  order.sort(function(a,b){ return a.key<b.key?-1:(a.key>b.key?1:0); });
+  var halves = list.map(function(){ return 'second'; });
+  halves[order[0].i] = 'first';
+  return halves;
 }
 function wdKey(y,m){ return y+'-'+pad2(m); }
 function wdOverrideFor(st,y,m){
@@ -644,6 +687,7 @@ function wdOverrideFor(st,y,m){
 }
 /* рабочие дни половины месяца: вручную исправленное значение важнее календарного */
 function workingDaysInHalf(y,m,half,st){
+  if(half==='full') return workingDaysInHalf(y,m,'first',st) + workingDaysInHalf(y,m,'second',st);
   var ov = wdOverrideFor(st,y,m);
   if(ov && ov[half]!=null && !isNaN(ov[half])) return Math.max(0, ov[half]);
   return workingDaysInHalfCalendar(y,m,half,st);
@@ -734,13 +778,17 @@ function payDateOnOrBefore(targetISO, st){
    Сумма на руки — по окладу, отработанным дням (без отпусков и больничных) и НДФЛ нарастающим итогом
    за календарный год выплаты. Периоды сразу добавляются в план. */
 function generateYearPeriods(year, st){
-  var out=[];
+  var out=[], sched = payoutSchedule(st), halves = scheduleHalves(sched);
   for(var m=1;m<=12;m++){
-    var avansDate = payDateOnOrBefore(isoDate(year,m,20), st);
-    out.push({id:uid('p'), date:avansDate, label:periodLabelFromDate(avansDate), type:'avans', half:'first', monthRef:{y:year,m:m}, calc:'auto', incomeActual:0, assignedVacations:[], locked:false});
-    var zpY = m===12?year+1:year, zpM = m===12?1:m+1;
-    var zpDate = payDateOnOrBefore(isoDate(zpY,zpM,5), st);
-    out.push({id:uid('p'), date:zpDate, label:periodLabelFromDate(zpDate), type:'zp', half:'second', monthRef:{y:year,m:m}, calc:'auto', incomeActual:0, assignedVacations:[], locked:false});
+    sched.forEach(function(slot, i){
+      var py = year, pm = m;
+      if(slot.forMonth==='previous'){ pm = m+1; if(pm>12){ pm = 1; py = year+1; } }
+      var day = Math.min(slot.day||1, daysInMonth(py,pm));
+      var date = payDateOnOrBefore(isoDate(py,pm,day), st);
+      out.push({ id:uid('p'), date:date, label:periodLabelFromDate(date),
+        type: halves[i]==='second' ? 'zp' : 'avans', half: halves[i],
+        monthRef:{y:year,m:m}, calc:'auto', incomeActual:0, assignedVacations:[], locked:false });
+    });
   }
   /* отпускные, которые не правили вручную (равны формуле), пересчитаем, когда появятся доходы нового года */
   var formulaBefore = {};
@@ -843,8 +891,8 @@ function periodWorkInfo(period, st, ranges){
   if(monthWD<=0) return null;
   if(!(okladForDate(isoDate(y,m,period.half==='first'?1:16), st) > 0)) return null;
   ranges = ranges || absenceRanges(st);
-  var dim = daysInMonth(y,m);
-  var start = period.half==='first'?1:16, end = period.half==='first'?15:dim;
+  var range = halfRange(y,m,period.half);
+  var start = range.start, end = range.end;
   var calHalf = 0, calWorked = 0, okladSum = 0;
   for(var d=start; d<=end; d++){
     if(!isWorkingDay(y,m,d,holidaySet)) continue;
@@ -999,10 +1047,9 @@ function calcVacationPayFormula(vac, st){
 /* Расчётный период выплаты — та половина месяца, за которую она начислена:
    аванс (1-я половина) 20.08 → 01.08–15.08, зарплата (2-я половина) 05.09 → 16.08–31.08. */
 function settlementWindow(period){
-  var y = period.monthRef.y, m = period.monthRef.m, dim = daysInMonth(y,m);
-  return period.half==='first'
-    ? { start: isoDate(y,m,1), end: isoDate(y,m,15) }
-    : { start: isoDate(y,m,16), end: isoDate(y,m,dim) };
+  var y = period.monthRef.y, m = period.monthRef.m;
+  var range = halfRange(y,m,period.half);
+  return { start: isoDate(y,m,range.start), end: isoDate(y,m,range.end) };
 }
 function settlementLabel(period){
   var w = settlementWindow(period);
@@ -1783,6 +1830,18 @@ function render(){
     clearTimeout(publishTimer); saveStatus='pending'; publishTimer=setTimeout(doPublish,500);
   }
   renderedDay = todayISO();
+  if(wizard){
+    root.innerHTML =
+      '<div class="topbar"><div class="topbar-inner">'
+      + '<div class="brand"><h1 style="font-size:19px;">Финансы</h1>'
+      + (APP_CONFIG.env==='dev' ? '<span class="pill danger" style="font-size:11px;">ТЕСТ</span>' : '')
+      + '</div>'
+      + '<div class="topbar-right"><span class="today-date">Настройка</span></div>'
+      + '</div></div>'
+      + '<main>' + renderWizard() + '</main>';
+    attachWizardEvents();
+    return;
+  }
   var sim = simulate(state);
   var body = '';
   if(ui.tab==='dashboard') body = renderDashboard(sim);
@@ -1824,6 +1883,221 @@ setInterval(function(){
   render();
 }, 60000);
 function tabBtn(id,label){ return '<button data-tab="'+id+'" class="'+(ui.tab===id?'active':'')+'">'+label+'</button>'; }
+
+/* ---------- мастер первой настройки ---------- */
+var wizard = null;
+var STARTER_CATEGORIES = [
+  { name:'Продукты', amount:10000 },
+  { name:'Жильё и коммуналка', amount:7000 },
+  { name:'Связь и интернет', amount:1000 },
+  { name:'Транспорт', amount:2000 },
+  { name:'Здоровье', amount:2000 },
+  { name:'Дом и бытовое', amount:2000 },
+  { name:'Внешний вид', amount:3000 },
+  { name:'Развлечения', amount:3000 }
+];
+function freshWizard(){
+  var t = todayISO(), y = t.slice(0,4);
+  return {
+    step: 1,
+    hasOklad: true, oklad: '', okladFrom: y+'-01-01',
+    hasRaise: false, prevOklad: '', prevFrom: '',
+    hasTax: true, brackets: clone(DEFAULT_STATE.ndfl.brackets),
+    payouts: 2,
+    slots: [ { day:20, forMonth:'current' }, { day:5, forMonth:'previous' } ],
+    withCategories: true,
+    error: ''
+  };
+}
+function wizardYear(){ return parseInt(todayISO().slice(0,4),10); }
+function wzRadio(field, value, label, note){
+  var on = String(wizard[field])===String(value);
+  return '<button class="'+(on?'primary':'')+'" data-wz-set="'+field+'" data-value="'+esc(String(value))+'" style="flex:1;min-width:120px;">'
+    + esc(label) + (note ? '<div class="small-note" style="margin:2px 0 0;opacity:.85;">'+esc(note)+'</div>' : '') + '</button>';
+}
+function renderWizard(){
+  var w = wizard, y = wizardYear(), body = '', title = '', hint = '';
+  if(w.step===1){
+    title = 'Оклад';
+    hint = 'С оклада приложение считает аванс и зарплату по отработанным дням. Если дохода фиксированного нет, суммы каждой выплаты будете вписывать вручную.';
+    body = '<div class="row wrap" style="gap:8px;">'+wzRadio('hasOklad', true, 'Да, есть оклад')+wzRadio('hasOklad', false, 'Нет, доход плавающий')+'</div>'
+      + (w.hasOklad ? '<div class="grid cols-2" style="margin-top:12px;">'
+          + '<div><label>Оклад до вычета налога, ₽</label><input type="text" inputmode="numeric" class="num" data-wz="oklad" value="'+esc(w.oklad)+'" placeholder="например, 230000"></div>'
+          + '<div><label>Действует с</label><input type="date" data-wz="okladFrom" value="'+esc(w.okladFrom)+'"></div>'
+          + '</div>' : '');
+  } else if(w.step===2){
+    title = 'Повышение за последние 12 месяцев';
+    hint = 'Нужно для отпускных: при повышении оклада заработок за более ранние месяцы индексируется.';
+    body = '<div class="row wrap" style="gap:8px;">'+wzRadio('hasRaise', true, 'Да, было')+wzRadio('hasRaise', false, 'Нет')+'</div>'
+      + (w.hasRaise ? '<div class="grid cols-2" style="margin-top:12px;">'
+          + '<div><label>Прежний оклад, ₽</label><input type="text" inputmode="numeric" class="num" data-wz="prevOklad" value="'+esc(w.prevOklad)+'"></div>'
+          + '<div><label>Он действовал с</label><input type="date" data-wz="prevFrom" value="'+esc(w.prevFrom)+'"></div>'
+          + '</div><div class="small-note">Дата повышения — это «Действует с» из прошлого шага.</div>' : '');
+  } else if(w.step===3){
+    title = 'Налог на доходы';
+    hint = 'Ступени применяются как лестница: повышенная ставка действует только на часть дохода сверх порога. Ниже — шкала НДФЛ, действующая в России; поправьте, если у вас иначе.';
+    body = '<div class="row wrap" style="gap:8px;">'+wzRadio('hasTax', true, 'Да, есть налог')+wzRadio('hasTax', false, 'Нет налога')+'</div>'
+      + (w.hasTax ? '<div style="margin-top:12px;">'
+          + '<div class="tag-input-grid" style="grid-template-columns:1fr 90px auto;font-size:11px;color:var(--muted);margin-bottom:4px;"><span>Доход в год до, ₽</span><span>Ставка, %</span><span></span></div>'
+          + w.brackets.map(function(b,i){
+              return '<div class="item-row" style="grid-template-columns:1fr 90px auto;">'
+                + '<input type="text" inputmode="numeric" class="num" placeholder="без верхней границы" data-wz-bracket="upTo" data-idx="'+i+'" value="'+(b.upTo==null?'':b.upTo)+'">'
+                + '<input type="text" inputmode="numeric" class="num" data-wz-bracket="rate" data-idx="'+i+'" value="'+Math.round((b.rate||0)*100)+'">'
+                + '<button class="ghost small" data-wz-bracket-del data-idx="'+i+'">✕</button></div>';
+            }).join('')
+          + '<button class="small ghost" data-wz-bracket-add>+ ступень</button></div>' : '');
+  } else if(w.step===4){
+    title = 'Выплаты';
+    hint = 'Даты можно указывать как есть: если число выпадает на выходной или праздник, приложение сдвинет выплату на ближайший рабочий день до него.';
+    body = '<label>Сколько раз в месяц приходит фиксированная часть</label>'
+      + '<div class="row wrap" style="gap:8px;">'+wzRadio('payouts', 2, 'Два раза')+wzRadio('payouts', 1, 'Один раз')+wzRadio('payouts', 0, 'Другое')+'</div>'
+      + (w.payouts===0
+          ? '<div class="small-note" style="color:var(--warn);margin-top:10px;">Пока приложение умеет одну или две выплаты в месяц: расчёт устроен по половинам месяца. Если у вас другой график, напишите — сделаем отдельно. Сейчас выберите ближайший вариант.</div>'
+          : '<div style="margin-top:12px;">'
+            + w.slots.slice(0, w.payouts).map(function(sl,i){
+                return '<div class="grid cols-2" style="margin-bottom:10px;">'
+                  + '<div><label>Выплата '+(i+1)+': число месяца</label><input type="text" inputmode="numeric" class="num" data-wz-slot="day" data-idx="'+i+'" value="'+sl.day+'"></div>'
+                  + '<div><label>За какой месяц</label><select data-wz-slot="forMonth" data-idx="'+i+'">'
+                  + '<option value="current"'+(sl.forMonth!=='previous'?' selected':'')+'>За текущий месяц</option>'
+                  + '<option value="previous"'+(sl.forMonth==='previous'?' selected':'')+'>За прошлый месяц</option>'
+                  + '</select></div></div>';
+              }).join('')
+            + '<div class="small-note">Пример: аванс 20-го за текущий месяц, зарплата 5-го за прошлый. Тогда выплата 20-го закрывает 1–15 число, а выплата 5-го — 16-е и до конца прошлого месяца.</div>'
+            + '</div>');
+  } else {
+    title = 'Категории расходов';
+    hint = 'Категории — это план расходов на одну выплату. Их всегда можно переименовать, удалить и разбить на статьи.';
+    body = '<div class="row wrap" style="gap:8px;">'+wzRadio('withCategories', true, 'Создать базовый набор')+wzRadio('withCategories', false, 'Начну с пустого списка')+'</div>'
+      + (w.withCategories ? '<div class="small-note" style="margin-top:10px;">Будут созданы: '
+          + esc(STARTER_CATEGORIES.map(function(c){ return c.name; }).join(', '))
+          + '. Суммы проставлены примерные, на одну выплату — поправите на вкладке «Категории».</div>' : '')
+      + '<hr class="sep">'
+      + '<div class="info-box">Дальше создам план на '+y+' год: все выплаты по вашему графику, доход по окладу с налогом нарастающим итогом и производственный календарь с обычными праздниками. Копилки, подушки, подарки, кредитки и рассрочки добавите потом сами.</div>';
+  }
+  var steps = 5;
+  return '<div class="card" style="max-width:640px;margin:0 auto;">'
+    + '<div class="row between" style="margin-bottom:6px;"><span class="muted" style="font-size:12px;">Шаг '+w.step+' из '+steps+'</span>'
+    + '<button class="small ghost" data-wz-skip>Пропустить настройку</button></div>'
+    + '<div class="progress" style="margin-bottom:14px;"><i style="width:'+Math.round(w.step/steps*100)+'%"></i></div>'
+    + '<h2 style="font-size:18px;">'+title+'</h2>'
+    + '<div class="small-note" style="margin-bottom:12px;">'+hint+'</div>'
+    + body
+    + (w.error ? '<div class="small-note" style="color:var(--danger);font-weight:600;">'+esc(w.error)+'</div>' : '')
+    + '<div class="row" style="gap:8px;margin-top:16px;">'
+    + (w.step>1 ? '<button data-wz-back>Назад</button>' : '')
+    + '<button class="primary" data-wz-next>'+(w.step===steps ? 'Создать план на '+y+' год' : 'Далее')+'</button>'
+    + '</div></div>';
+}
+function wizardValidate(){
+  var w = wizard;
+  w.error = '';
+  if(w.step===1 && w.hasOklad){
+    if(!(parseNum(w.oklad)>0)) w.error = 'Укажите оклад или выберите «доход плавающий».';
+    else if(!w.okladFrom) w.error = 'Укажите, с какой даты действует оклад.';
+  }
+  if(w.step===2 && w.hasRaise){
+    if(!(parseNum(w.prevOklad)>0)) w.error = 'Укажите прежний оклад.';
+    else if(!w.prevFrom) w.error = 'Укажите, с какой даты действовал прежний оклад.';
+    else if(w.okladFrom && w.prevFrom >= w.okladFrom) w.error = 'Прежний оклад должен начинаться раньше нынешнего.';
+  }
+  if(w.step===4){
+    if(w.payouts===0) w.error = 'Выберите одну или две выплаты в месяц.';
+    else {
+      var used = {};
+      for(var i=0;i<w.payouts;i++){
+        var sl = w.slots[i], d = parseNum(sl.day);
+        if(!(d>=1 && d<=31)){ w.error = 'Число месяца должно быть от 1 до 31.'; break; }
+        var key = sl.forMonth+'-'+d;
+        if(used[key]){ w.error = 'Выплаты не могут совпадать по дате.'; break; }
+        used[key] = true;
+      }
+    }
+  }
+  return !w.error;
+}
+function finishWizard(){
+  var w = wizard, y = wizardYear();
+  state.oklad.history = [];
+  if(w.hasOklad){
+    if(w.hasRaise && parseNum(w.prevOklad)>0 && w.prevFrom){
+      state.oklad.history.push({ effectiveFrom: w.prevFrom, amount: parseNum(w.prevOklad) });
+    }
+    state.oklad.history.push({ effectiveFrom: w.okladFrom, amount: parseNum(w.oklad) });
+  } else {
+    state.oklad.history.push({ effectiveFrom: isoDate(y,1,1), amount: 0 });
+  }
+  var brackets = w.hasTax
+    ? w.brackets.filter(function(b){ return b.rate>0 || b.upTo!=null; })
+    : [];
+  state.ndfl.brackets = brackets.length ? brackets : [{ upTo:null, rate:0 }];
+  state.debts.payoutSchedule = w.slots.slice(0, Math.max(1, w.payouts)).map(function(sl){
+    return { day: Math.max(1, Math.min(31, parseNum(sl.day))), forMonth: sl.forMonth==='previous' ? 'previous' : 'current' };
+  });
+  state.categories = w.withCategories
+    ? STARTER_CATEGORIES.map(function(c){ return { id:uid('cat'), name:c.name, amount:c.amount, items:[] }; })
+    : [];
+  state.periods = [];
+  generateYearPeriods(y, state);
+  if(!w.hasOklad){
+    state.periods.forEach(function(p){ p.calc = 'manual'; p.incomeActual = 0; });
+  }
+  ui.selectedYear = y;
+  ui.tab = 'periods';
+  wizard = null;
+  scheduleSave();
+}
+function attachWizardEvents(){
+  root.querySelectorAll('[data-wz-set]').forEach(function(b){ b.addEventListener('click', function(){
+    var f = b.getAttribute('data-wz-set'), v = b.getAttribute('data-value');
+    wizard[f] = (v==='true') ? true : (v==='false' ? false : (isNaN(parseInt(v,10)) ? v : parseInt(v,10)));
+    wizard.error = '';
+    render();
+  }); });
+  root.querySelectorAll('[data-wz]').forEach(function(el){
+    el.addEventListener('input', function(){ wizard[el.getAttribute('data-wz')] = el.value; });
+    el.addEventListener('change', function(){ wizard[el.getAttribute('data-wz')] = el.value; });
+  });
+  root.querySelectorAll('[data-wz-slot]').forEach(function(el){
+    var upd = function(){
+      var sl = wizard.slots[parseInt(el.dataset.idx,10)];
+      if(!sl) return;
+      if(el.getAttribute('data-wz-slot')==='day') sl.day = parseNum(el.value);
+      else sl.forMonth = el.value==='previous' ? 'previous' : 'current';
+    };
+    el.addEventListener('input', upd); el.addEventListener('change', upd);
+  });
+  root.querySelectorAll('[data-wz-bracket]').forEach(function(el){
+    var upd = function(){
+      var b = wizard.brackets[parseInt(el.dataset.idx,10)];
+      if(!b) return;
+      if(el.getAttribute('data-wz-bracket')==='upTo') b.upTo = el.value.trim()==='' ? null : parseNum(el.value);
+      else b.rate = Math.max(0, parseNum(el.value))/100;
+    };
+    el.addEventListener('input', upd); el.addEventListener('change', upd);
+  });
+  root.querySelectorAll('[data-wz-bracket-add]').forEach(function(b){ b.addEventListener('click', function(){
+    wizard.brackets.splice(Math.max(0, wizard.brackets.length-1), 0, { upTo:1000000, rate:0.13 });
+    render();
+  }); });
+  root.querySelectorAll('[data-wz-bracket-del]').forEach(function(b){ b.addEventListener('click', function(){
+    wizard.brackets.splice(parseInt(b.dataset.idx,10), 1);
+    render();
+  }); });
+  root.querySelectorAll('[data-wz-back]').forEach(function(b){ b.addEventListener('click', function(){
+    wizard.step = Math.max(1, wizard.step-1); wizard.error=''; render();
+  }); });
+  root.querySelectorAll('[data-wz-next]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!wizardValidate()){ render(); return; }
+    if(wizard.step<5){ wizard.step++; render(); return; }
+    finishWizard();
+  }); });
+  root.querySelectorAll('[data-wz-skip]').forEach(function(b){ b.addEventListener('click', function(){
+    if(!confirm('Пропустить настройку? План будет пустым: оклад, выплаты и категории добавите сами в настройках.')) return;
+    wizard = null;
+    ui.tab = 'settings';
+    scheduleSave();
+  }); });
+}
 
 /* ---------- dashboard ---------- */
 function renderDashboard(sim){
@@ -2895,7 +3169,8 @@ function renderCategories(sim){
   var okladNet = estimateMonthlyNet(oklad, state.ndfl.brackets);
   var cards = state.categories.map(function(c,idx){
     var planned = categoryPlannedTotal(c);
-    var pct = okladNet>0 ? (planned*2/okladNet*100).toFixed(1)+'%' : '—';
+    var perMonth = payoutsPerMonth(state);
+    var pct = okladNet>0 ? (planned*perMonth/okladNet*100).toFixed(1)+'%' : '—';
     var itemsHtml = (c.items||[]).map(function(it,ii){
       var seasonRow = it.season ? '<div class="row wrap" style="gap:6px;margin:-2px 0 6px;padding-left:2px;">'
           + '<span class="pill ok" style="font-size:9px;">сезон</span>'
@@ -2930,12 +3205,12 @@ function renderCategories(sim){
       + (c.items && c.items.length ? itemsHtml + '<button class="small ghost" data-add-item="'+c.id+'">+ статья</button>'
           : '<div style="margin-top:6px;"><label>Сумма за период</label><input type="text" inputmode="numeric" class="num" data-cat-amount data-cat="'+c.id+'" value="'+c.amount+'"><button class="small ghost" data-add-item="'+c.id+'" style="margin-top:6px;">+ разбить на статьи</button></div>')
       + '<div class="row between muted" style="font-size:12px;margin-top:8px;"><span>Итого за период'+(c.season?' (в сезон)':'')+'</span><span class="num">'+fmt(planned)+' ('+pct+' от дохода на руки ×2)</span></div>'
-      + '<div class="row between muted" style="font-size:12px;"><span>Итого за месяц'+(c.season?' (в сезон)':'')+'</span><span class="num">'+fmt(planned*2)+'</span></div>'
+      + '<div class="row between muted" style="font-size:12px;"><span>Итого за месяц'+(c.season?' (в сезон)':'')+'</span><span class="num">'+fmt(planned*perMonth)+'</span></div>'
       + '</div>';
   }).join('');
   return '<div class="card"><div class="card-title"><h2 style="font-size:16px;">Категории расходов (шаблон на каждый период выплаты)</h2>'
     + '<button class="small" data-add-cat>+ категория</button></div>'
-    + '<div class="info-box" style="margin-bottom:12px;">Эти суммы применяются как план к каждому периоду выплаты (2 раза в месяц). Итого по шаблону: <b>'+fmt(total)+'</b> за период, <b>'+fmt(total*2)+'</b> в месяц. Фактические расходы конкретного периода можно скорректировать на вкладке «Доходы». Категорию целиком или отдельную статью можно сделать <b>сезонной</b> — тогда сумма учитывается только в периоды внутри указанного диапазона дат (ДД.ММ–ДД.ММ, можно через рубеж года, например 01.12–20.03); вне сезона она в этот период не расходуется.</div>'
+    + '<div class="info-box" style="margin-bottom:12px;">Эти суммы применяются как план к каждому периоду выплаты ('+payoutsPerMonth(state)+' в месяц). Итого по шаблону: <b>'+fmt(total)+'</b> за период, <b>'+fmt(total*payoutsPerMonth(state))+'</b> в месяц. Фактические расходы конкретного периода можно скорректировать на вкладке «Доходы». Категорию целиком или отдельную статью можно сделать <b>сезонной</b> — тогда сумма учитывается только в периоды внутри указанного диапазона дат (ДД.ММ–ДД.ММ, можно через рубеж года, например 01.12–20.03); вне сезона она в этот период не расходуется.</div>'
     + '<div class="grid cols-2">' + cards + '</div></div>';
 }
 
@@ -4301,6 +4576,7 @@ async function boot(){
   }catch(e){ authUser = null; }
   await loadStateFromDB();
   ui = state.ui;
+  if(needsWizard) wizard = freshWizard();
   render();
 }
 if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', boot); } else { boot(); }

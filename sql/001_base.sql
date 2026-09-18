@@ -118,7 +118,7 @@ create table if not exists public.periods (
   date            date    not null,
   label           text,
   type            text    not null check (type in ('zp', 'avans')),
-  half            text    not null check (half in ('first', 'second')),
+  half            text    not null check (half in ('first', 'second', 'full')),
   month_ref_year  integer not null,
   month_ref_month integer not null,
   calc            text    not null check (calc in ('auto', 'manual')),
