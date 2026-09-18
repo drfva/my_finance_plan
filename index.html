@@ -251,17 +251,17 @@ h2[style*="font-size:15px"]{font-size:24px!important;font-weight:800;margin:4px 
   </div>
   <div id="login-error" style="color:var(--danger);font-size:12.5px;margin-top:10px;"></div>
 </div>
+<script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+/* адрес и ключ берутся из config.js: localhost → тестовая база, GitHub Pages → боевая */
+var APP_CONFIG = window.APP_CONFIG || { env:'prod', url:'', key:'' };
 /* passkeys (Face ID / Touch ID) — экспериментальный API Supabase, включается явно */
 var supabaseClient = supabase.createClient(
-    'https://crokwtmokshdankujdhx.supabase.co',
-    'sb_publishable_WBzL5wto5pGEiwbQFqxkSQ_dUOXxabB',
+    APP_CONFIG.url,
+    APP_CONFIG.key,
     { auth: { experimental: { passkey: true } } }
   );
-/* Адрес возврата из писем Supabase. Оставьте пустым — возьмётся адрес текущей страницы.
-   Этот же адрес должен быть в Supabase: Authentication → URL Configuration → Redirect URLs. */
-window.APP_RETURN_URL = '';
 </script>
 <script id="app-logic">
 (function(){
@@ -1798,7 +1798,9 @@ function render(){
   else if(ui.tab==='settings') body = renderSettings(sim);
   root.innerHTML =
     '<div class="topbar"><div class="topbar-inner">'
-    + '<div class="brand"><h1 style="font-size:19px;">Финансы</h1></div>'
+    + '<div class="brand"><h1 style="font-size:19px;">Финансы</h1>'
+    + (APP_CONFIG.env==='dev' ? '<span class="pill danger" style="font-size:11px;">ТЕСТ</span>' : '')
+    + '</div>'
     + '<div class="topbar-right"><span class="savebadge" id="save-badge"></span>'
     + '<span class="today-date">Сегодня <b>'+esc(todayLong())+'</b></span></div>'
     + '</div>'
